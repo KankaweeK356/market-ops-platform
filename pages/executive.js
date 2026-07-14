@@ -23,6 +23,12 @@ export default function Executive() {
   const [copilotMessages, setCopilotMessages] = useState([]);
   const [copilotLoading, setCopilotLoading] = useState(false);
 
+  // Workflow states (GAP 4 - Closed-loop workflow status)
+  const [workflowStatus, setWorkflowStatus] = useState({}); // { caseId: 'ordered' | 'completed' }
+
+  // PDF Export Modal State (GAP 5)
+  const [showExportModal, setShowExportModal] = useState(false);
+
   useEffect(() => {
     loadAllData();
   }, []);
@@ -43,22 +49,24 @@ export default function Executive() {
     setLoggedDecisions(getExecutiveDecisions());
   }
 
-  // เลื่อนไปที่เคสการตัดสินใจแบบลื่นไหล
-  function handleScrollToCase(caseNum) {
-    const el = document.getElementById(`case-${caseNum}`);
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-      el.style.backgroundColor = "var(--gold-soft)";
-      setTimeout(() => {
-        el.style.backgroundColor = "var(--paper-raised)";
-      }, 1000);
-    }
-  }
-
-  // กดเลือกคำตอบตัดสินใจบนการ์ด
+  // กดเลือกคำตอบตัดสินใจบนการ์ด (อัปเกรด GAP 4: Closed-loop status update)
   function handleMakeDecision(caseId, decisionText) {
     const record = logExecutiveDecision(caseId, decisionText);
     setLoggedDecisions(prev => [...prev, record]);
+    
+    // ตั้งค่าสถานะเวิร์กโฟลว์ว่า "สั่งการแล้ว"
+    setWorkflowStatus(prev => ({
+      ...prev,
+      [caseId]: "ordered"
+    }));
+
+    // จำลองการอัปเดตสถานะงานหลังจากช่างได้รับคำสั่ง (5 วินาทีต่อมา)
+    setTimeout(() => {
+      setWorkflowStatus(prev => ({
+        ...prev,
+        [caseId]: "completed"
+      }));
+    }, 4000);
   }
 
   // ล้างประวัติการตัดสินใจเพื่อเริ่มรันใหม่
@@ -66,6 +74,7 @@ export default function Executive() {
     if (confirm("ต้องการเคลียร์ประวัติการตัดสินใจทั้งหมดเพื่อเริ่มต้นเดโมใหม่ใช่หรือไม่?")) {
       clearExecutiveDecisions();
       setLoggedDecisions([]);
+      setWorkflowStatus({});
     }
   }
 
@@ -189,6 +198,40 @@ export default function Executive() {
     return [];
   }, [activeDeptId]);
 
+  // สถิติข้อมูลแนวโน้ม 4 สัปดาห์ย้อนหลัง (GAP 1 - Historical Trend)
+  const historicalTrends = useMemo(() => {
+    if (activeDeptId === "d-clean") {
+      return [
+        { period: "3 สัปดาห์ก่อน", kpi1: "78%", kpi2: "2.1 รอบ", kpi3: "115 mg/L", state: "pass" },
+        { period: "2 สัปดาห์ก่อน", kpi1: "82%", kpi2: "1.8 รอบ", kpi3: "125 mg/L", state: "warning" },
+        { period: "สัปดาห์ก่อน", kpi1: "88%", kpi2: "1.4 รอบ", kpi3: "148 mg/L", state: "warning" },
+        { period: "สัปดาห์ปัจจุบัน (วิกฤต)", kpi1: "92%", kpi2: "1.0 รอบ", kpi3: "160 mg/L", state: "alert" }
+      ];
+    } else if (activeDeptId === "d-security") {
+      return [
+        { period: "3 สัปดาห์ก่อน", kpi1: "21 นาที", kpi2: "12 นาที", kpi3: "6 นาที", state: "pass" },
+        { period: "2 สัปดาห์ก่อน", kpi1: "24 นาที", kpi2: "18 นาที", kpi3: "8 นาที", state: "warning" },
+        { period: "สัปดาห์ก่อน", kpi1: "29 นาที", kpi2: "26 นาที", kpi3: "12 นาที", state: "warning" },
+        { period: "สัปดาห์ปัจจุบัน (วิกฤต)", kpi1: "34 นาที", kpi2: "34 นาที", kpi3: "15 นาที", state: "alert" }
+      ];
+    } else if (activeDeptId === "d-labor") {
+      return [
+        { period: "3 สัปดาห์ก่อน", kpi1: "9.2%", kpi2: "2 ราย", kpi3: "68%", state: "pass" },
+        { period: "2 สัปดาห์ก่อน", kpi1: "11.5%", kpi2: "5 ราย", kpi3: "65%", state: "pass" },
+        { period: "สัปดาห์ก่อน", kpi1: "16.8%", kpi2: "11 ราย", kpi3: "55%", state: "warning" },
+        { period: "สัปดาห์ปัจจุบัน (วิกฤต)", kpi1: "21.0%", kpi2: "16 ราย", kpi3: "50%", state: "alert" }
+      ];
+    } else if (activeDeptId === "d-maintenance") {
+      return [
+        { period: "3 สัปดาห์ก่อน", kpi1: "82%", kpi2: "0 นาที", kpi3: "98.2%", state: "pass" },
+        { period: "2 สัปดาห์ก่อน", kpi1: "78%", kpi2: "15 นาที", kpi3: "96.5%", state: "pass" },
+        { period: "สัปดาห์ก่อน", kpi1: "62%", kpi2: "45 นาที", kpi3: "93.4%", state: "warning" },
+        { period: "สัปดาห์ปัจจุบัน (วิกฤต)", kpi1: "45%", kpi2: "120 นาที", kpi3: "91.0%", state: "alert" }
+      ];
+    }
+    return [];
+  }, [activeDeptId]);
+
   // คำแนะนำสืบค้นข้อมูล Copilot ที่เข้ากับ Use Cases ใหม่
   const copilotSuggestions = useMemo(() => {
     if (activeDeptId === "d-clean") {
@@ -213,7 +256,7 @@ export default function Executive() {
       return [
         { label: "🔎 รายงาน Breakdown และประสิทธิภาพ Utilization เครื่องจักร", text: "สรุปปัญหาสัญญาณขัดข้องของเครื่องปั่นไฟสำรอง GEN-01 และอัตราการ Utilize ล่าสุด" },
         { label: "🔎 ตรวจสอบใบงานซ่อมที่ล่าช้าเกินเวลาข้อตกลง SLA", text: "ขอดูรายชื่องานแจ้งซ่อมและรายงานใบงาน RQ-1045 ซ่อมล่าช้าขัด SLA" },
-        { label: "🔎 ข้อมูลการวางแผนซ่อมบำรุงเชิงป้องกัน (PM) รถตักและปั๊ม", text: "ตรวจเช็คสภาพปั๊มสูบระบายหลักและชั่วโมงการเดินเครื่องสะสมสัปดาห์นี้" }
+        { label: "🔎 ข้อมูลการวางแผนซ่อมบำมุงเชิงป้องกัน (PM) รถตักและปั๊ม", text: "ตรวจเช็คสภาพปั๊มสูบระบายหลักและชั่วโมงการเดินเครื่องสะสมสัปดาห์นี้" }
       ];
     }
     return [];
@@ -221,13 +264,24 @@ export default function Executive() {
 
   return (
     <Layout>
-      <div className="page-head">
-        <p className="eyebrow">แผงควบคุมผู้บริหารสูงสุด (Executive Dashboard)</p>
-        <h1>ระบบประเมินดัชนี KPI และสั่งการอนุมัติ</h1>
-        <p>
-          ระบบวิเคราะห์สถานการณ์สนับสนุนการบริหารและตัดสินใจสำหรับ **ตลาดสี่มุมเมือง** 
-          แยกแยะตามตรรกะเฉพาะฝ่ายงาน เพื่อแก้ปัญหาคอขวดปฏิบัติงานและคงเกณฑ์มาตรฐานของตลาด
-        </p>
+      <div className="page-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 16 }}>
+        <div>
+          <p className="eyebrow">แผงควบคุมผู้บริหารสูงสุด (Executive Dashboard)</p>
+          <h1>ระบบประเมินดัชนี KPI และสั่งการอนุมัติ</h1>
+          <p>
+            ระบบวิเคราะห์สถานการณ์สนับสนุนการบริหารและตัดสินใจสำหรับ **ตลาดสี่มุมเมือง** 
+            แยกแยะตามตรรกะเฉพาะฝ่ายงาน เพื่อแก้ปัญหาคอขวดปฏิบัติงานและคงเกณฑ์มาตรฐานของตลาด
+          </p>
+        </div>
+        
+        {/* GAP 5: PDF Briefing Export Action */}
+        <button 
+          className="btn" 
+          onClick={() => setShowExportModal(true)}
+          style={{ backgroundColor: "var(--red-dark)", borderColor: "var(--red-dark)" }}
+        >
+          📄 ส่งออกรายงาน SMM Board Briefing
+        </button>
       </div>
 
       {/* ========================================================================= */}
@@ -255,7 +309,7 @@ export default function Executive() {
         <button 
           className={`dept-tab-btn maint-btn ${activeDeptId === "d-maintenance" ? "active" : ""}`}
           onClick={() => setActiveDeptId("d-maintenance")}
-          style={{ borderLeftColor: "var(--red)" }}
+          style={{ borderLeft: "3px solid var(--red)" }}
         >
           🔧 ฝ่ายซ่อมบำรุง
         </button>
@@ -275,6 +329,47 @@ export default function Executive() {
             </div>
           </div>
         ))}
+      </div>
+
+      {/* ========================================================================= */}
+      {/* GAP 1: ตารางแสดงข้อมูลแนวโน้มเปรียบเทียบย้อนหลัง (Historical Trend Chart/Table) */}
+      {/* ========================================================================= */}
+      <div className="card trend-panel" style={{ marginBottom: 20 }}>
+        <h3 className="font-display" style={{ margin: "0 0 12px 0", fontSize: "1.1rem", color: "var(--red-dark)" }}>
+          📈 รายงานเปรียบเทียบแนวโน้ม 4 สัปดาห์ย้อนหลัง (Historical Trend Analyzer)
+        </h3>
+        <p style={{ color: "var(--ink-soft)", fontSize: "0.85rem", margin: "0 0 14px 0" }}>
+          มอนิเตอร์ระดับประสิทธิภาพที่ถดถอยเชิงเปรียบเทียบสถิติ เพื่อบ่งชี้ปัญหาเรื้อรังที่จำเป็นต้องจัดสรรงบประมาณแก้ไขนโยบาย
+        </p>
+
+        <div className="trend-table-wrapper">
+          <table className="trend-table">
+            <thead>
+              <tr>
+                <th>ระยะช่วงเวลา</th>
+                <th>{activeDeptId === "d-clean" ? "อัตราขยะล้นถัง" : activeDeptId === "d-security" ? "เวลารถจอดแช่" : activeDeptId === "d-labor" ? "ชั่วโมง OT สะสม" : "Utilize ปั๊ม/Gen"}</th>
+                <th>{activeDeptId === "d-clean" ? "การล้างถังขยะ" : activeDeptId === "d-security" ? "เวลารอคิวจราจร" : activeDeptId === "d-labor" ? "แรงงานใกล้หมดวีซ่า" : "ชั่วโมง Breakdown"}</th>
+                <th>{activeDeptId === "d-clean" ? "ระดับ COD เฉลี่ย" : activeDeptId === "d-security" ? "เวลาเคลียร์รถติด" : activeDeptId === "d-labor" ? "Forklift Idle" : "งานจบตาม SLA"}</th>
+                <th>ดัชนีรวมฝ่าย</th>
+              </tr>
+            </thead>
+            <tbody>
+              {historicalTrends.map((t, idx) => (
+                <tr key={idx} className={`trend-row trend-state-${t.state}`}>
+                  <td><strong>{t.period}</strong></td>
+                  <td>{t.kpi1}</td>
+                  <td>{t.kpi2}</td>
+                  <td>{t.kpi3}</td>
+                  <td>
+                    <span className={`trend-indicator-badge ${t.state}`}>
+                      {t.state === "pass" ? "🟢 เสถียรดี" : t.state === "warning" ? "🟡 เริ่มอ่อนไหว" : "🔴 หลุดเกณฑ์สะสม"}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div className="executive-grid">
@@ -445,10 +540,20 @@ export default function Executive() {
                     ประเมินตามเกณฑ์ควบคุมขยะล้นถัง: <strong>ปริมาณขยะเกณฑ์เตือน &gt; 90%</strong> ปัจจุบันตรวจวัดพบระดับสะสมสูงถึง 92% พร้อมปัญหากลิ่นรบกวน (High Odor) และปริมาณแมลงวันขึ้นทะลุเป้าหมายที่ 45 ตัว/กับดัก (KPI &lt; 20 ตัว)
                   </div>
                 }
-                decisions={["เพิ่มกำลังพลรถเก็บขยะเสริมจาก Zone A", "ปรับความถี่ขยายรอบเก็บทุก 30 นาที", "อนุมัติผู้รับเหมาเอกชนเก็บขยะภายนอกชั่วคราว"]}
+                decisions={["เพิ่มรถเก็บจาก Zone A (งบ +1,500 บ./วัน)", "ขยายรอบเก็บเป็นทุก 30 นาที (งบ +2,200 บ./วัน)", "จ้างผู้รับเหมาภายนอกชั่วคราว (+5,000 บ./ครั้ง)"]}
                 onDecision={handleMakeDecision}
                 loggedDecision={getDecisionForCase("C01")}
               />
+
+              {/* GAP 4: Closed-loop status visualization on Case C01 */}
+              {workflowStatus["C01"] && (
+                <div className={`workflow-tracker-bar ${workflowStatus["C01"]}`}>
+                  <span className="pulse-dot"></span>
+                  <span>สถานะสั่งการ: <strong>{
+                    workflowStatus["C01"] === "ordered" ? "🕒 สั่งการแล้ว (ช่างกำลังดำเนินการขนย้ายรถขยะ...)" : "✓ เสร็จสมบูรณ์ (ระบายขยะอินทรีย์เสร็จเรียบร้อย)"
+                  }</strong></span>
+                </div>
+              )}
 
               <DecisionCard
                 caseId="C02"
@@ -464,10 +569,19 @@ export default function Executive() {
                     เปรียบเทียบตามมาตรฐานควบคุมน้ำทิ้งตลาดสด: <strong>ค่า COD ห้ามเกิน 150 mg/L และค่า BOD ห้ามเกิน 20 mg/L</strong> ผลวัดล่าสุดพบ BOD สูง 25 mg/L เสี่ยงภัยต่อน้ำล้นคูคลองและสุขอนามัยตลาดโดนราชการปรับ
                   </div>
                 }
-                decisions={["สั่งสลับเปิดเครื่องระบายรอบน้ำและปั๊มสูบเพิ่ม", "ส่งวิศวกรและสิ่งแวดล้อมตรวจหาจุดสารปนเปื้อน", "ระงับช่องระบายน้ำจากโซนล้างรถและล้างถังชั่วคราว"]}
+                decisions={["เปิดระบบปั๊มสูบเพิ่ม (ค่าไฟ +500 บ./วัน)", "ส่งช่างตรวจหาจุดปนเปื้อน (ค่าแรง 0 บ.)", "ระงับปล่อยน้ำเสียโซนล้าง (สูญเสียการรันแผง 20%)"]}
                 onDecision={handleMakeDecision}
                 loggedDecision={getDecisionForCase("C02")}
               />
+
+              {workflowStatus["C02"] && (
+                <div className={`workflow-tracker-bar ${workflowStatus["C02"]}`}>
+                  <span className="pulse-dot"></span>
+                  <span>สถานะสั่งการ: <strong>{
+                    workflowStatus["C02"] === "ordered" ? "🕒 ส่งคำสั่งเข้าปั๊มแล้ว (กำลังปรับแรงดันสูบ...)" : "✓ เสร็จสมบูรณ์ (ลดระดับน้ำตกค้างและบำบัดสารเคมีแล้ว)"
+                  }</strong></span>
+                </div>
+              )}
             </div>
           )}
 
@@ -490,10 +604,19 @@ export default function Executive() {
                     เปรียบเทียบตามเป้าจอดแช่: <strong>ห้ามจอดแช่ขนของเกิน 25 นาที</strong> การจอดกีดขวางส่งผลกระทบต่อคิวขนานรถสะสมของสะพานเทียบแผงสินค้า และเกิดขวดขยะอับสายตา รบกวนรถบริการรอบอาคาร
                   </div>
                 }
-                decisions={["ส่ง รปภ. ลงเคลียร์ระเบียบจราจรและสั่งล็อกล้อทันที", "เปิดช่องลานจอดรถสำรองขนานระเบียงส่งของ", "จำกัดเข้มงวดสิทธิเวลาจอดแช่ไม่เกิน 15 นาที"]}
+                decisions={["ส่ง รปภ. ล็อกล้อทันที (เก็บค่าปรับ +500 บ.)", "เปิดเลนช่องทางจอดสำรอง (ค่าดำเนินการ 0 บ.)", "จำกัดเวลาจอดเหลือ 15 นาทีเด็ดขาด (ลดโหลดขนถ่าย 10%)"]}
                 onDecision={handleMakeDecision}
                 loggedDecision={getDecisionForCase("S01")}
               />
+
+              {workflowStatus["S01"] && (
+                <div className={`workflow-tracker-bar ${workflowStatus["S01"]}`}>
+                  <span className="pulse-dot"></span>
+                  <span>สถานะสั่งการ: <strong>{
+                    workflowStatus["S01"] === "ordered" ? "🕒 รปภ. กำลังเคลื่อนที่เข้าจุดจอด Dock-B..." : "✓ เสร็จสมบูรณ์ (ล็อกล้อรถฝ่าฝืนและเคลียร์จราจรเรียบร้อย)"
+                  }</strong></span>
+                </div>
+              )}
 
               <DecisionCard
                 caseId="S02"
@@ -509,10 +632,19 @@ export default function Executive() {
                     เปรียบเทียบ KPI จราจร: <strong>ห้ามรถติดคอขวดสะสมเกิน 3 นาที</strong> AI คาดการณ์ว่าหากไม่สั่งระบายรถภายใน 25 นาที เวลารอเฉลี่ยจะพุ่งแตะ 42 นาทีต่อรอบ และกระทบแผงค้าแผงสินค้าผลผลิตเกษตร 63 แผง
                   </div>
                 }
-                decisions={["อนุมัติสั่งเปิดประตู Gate พิเศษเข้าออกระบายรถเพิ่ม", "ปรับแก้สลับคิวเดินรถและเบี่ยงคิวไปลานนอกชั่วคราว", "เรียกเสริมกำลังเจ้าหน้าที่ตำรวจและ รปภ. เคลียร์แยกหลัก"]}
+                decisions={["สั่งเปิดประตู Gate พิเศษเพิ่ม (+800 บ./กะ)", "ปรับแผนทางเดินรถสลับทิศทาง (ค่าใช้จ่าย 0 บ.)", "เรียกเสริมกำลังตำรวจและ รปภ. (+1,200 บ./วัน)"]}
                 onDecision={handleMakeDecision}
                 loggedDecision={getDecisionForCase("S02")}
               />
+
+              {workflowStatus["S02"] && (
+                <div className={`workflow-tracker-bar ${workflowStatus["S02"]}`}>
+                  <span className="pulse-dot"></span>
+                  <span>สถานะสั่งการ: <strong>{
+                    workflowStatus["S02"] === "ordered" ? "🕒 กำลังเปิดช่องทางประตูระบายจราจร..." : "✓ เสร็จสมบูรณ์ (ระบายคิวสะสม 31 คัน รถวิ่งไหลลื่นปกติ)"
+                  }</strong></span>
+                </div>
+              )}
             </div>
           )}
 
@@ -535,10 +667,19 @@ export default function Executive() {
                     เปรียบเทียบเป้าหมายการจ้างงาน: <strong>ดัชนีแรงงานถูกต้องตามกฎหมายต้องเป็น 100%</strong> การละเลยส่งผลให้มีความเสี่ยงสูงที่จะโดนปรับคดีร้ายแรงและถูกปิดงดกะงานปฏิบัติการของตลาด
                   </div>
                 }
-                decisions={["แจ้ง HR ตลาดนำเรื่องยื่นเรื่องต่อวีซ่าแบบด่วนที่สุด", "พักงานชั่วคราวสำหรับพนักงาน 16 รายจนกว่าต่อสิทธิ์เสร็จ", "ว่าจ้างบริษัทจัดหาแรงงานต่างชาติสำรองเข้าเสริมงานแทน"]}
+                decisions={["แจ้ง HR ต่อยื่นวีซ่าด่วน (-5,500 บ./คน)", "ระงับการจัดกะทำงานทันที (กำลังคนหาย 16 ราย)", "ว่าจ้างแรงงานต่างชาติสำรองเสริม (+12,000 บ./กะ)"]}
                 onDecision={handleMakeDecision}
                 loggedDecision={getDecisionForCase("L01")}
               />
+
+              {workflowStatus["L01"] && (
+                <div className={`workflow-tracker-bar ${workflowStatus["L01"]}`}>
+                  <span className="pulse-dot"></span>
+                  <span>สถานะสั่งการ: <strong>{
+                    workflowStatus["L01"] === "ordered" ? "🕒 แจ้งข้อมูล HR และระบบกระทรวงแรงงาน..." : "✓ เสร็จสมบูรณ์ (ยื่นเรื่องและคุ้มครองสิทธิ์วีซ่าแรงงานครบถ้วน)"
+                  }</strong></span>
+                </div>
+              )}
 
               <DecisionCard
                 caseId="L02"
@@ -554,10 +695,19 @@ export default function Executive() {
                     เปรียบเทียบตามประสิทธิภาพความพร้อม: <strong>ดัชนีเวลาจอดรอถ่ายสินค้าเป้าหมายห้ามเกิน 25 นาที/คัน</strong> แต่ยอดประเมินพบเฉลี่ยแตะ 31 นาที ยอดจราจรล้นคัดแยกเฉลี่ยและ Utilization ของกำลังคนพุ่งแตะ 95% วิกฤต
                   </div>
                 }
-                decisions={["เรียกใช้แรงงานต่างด้าวสำรองบริษัทคู่สัญญาด่วน", "อนุมัติเลื่อนกำหนดถ่ายขนสินค้าบางโซนเบาบาง", "อนุมัติงบค่าจ้างโอทีทำงานล่วงเวลาสะสมกะเช้าเสริม"]}
+                decisions={["จ้างแรงงานต่างด้าวคัดแยกเสริม (+4,000 บ./กะ)", "เลื่อนกำหนดถ่ายสินค้าโซนผัก (สูญเสียรอบผลิต 15%)", "อนุมัติงบจ่ายค่าล่วงเวลา OT ช่างเสริม (+3,200 บ./กะ)"]}
                 onDecision={handleMakeDecision}
                 loggedDecision={getDecisionForCase("L02")}
               />
+
+              {workflowStatus["L02"] && (
+                <div className={`workflow-tracker-bar ${workflowStatus["L02"]}`}>
+                  <span className="pulse-dot"></span>
+                  <span>สถานะสั่งการ: <strong>{
+                    workflowStatus["L02"] === "ordered" ? "🕒 กำลังสลับจัดงบจ้างและเรียกแรงงานนอกกะ..." : "✓ เสร็จสมบูรณ์ (แรงงานเข้าคุมเวลารถถ่ายของลดเหลือ 22 นาทีต่อคัน)"
+                  }</strong></span>
+                </div>
+              )}
             </div>
           )}
 
@@ -580,10 +730,19 @@ export default function Executive() {
                     เปรียบเทียบตามเกณฑ์ควบคุมขัดข้อง: <strong>Breakdown ต้องเป็น 0 และ Utilize ต้อง &gt; 80%</strong> เครื่องเกิดความร้อนในห้องสูบน้ำหล่อเย็นสูง หากไม่เร่งเปลี่ยนพัดลมความร้อนด่วน จะเกิดความเสี่ยงไฟฟ้าดับกระทบระบบห้องเย็นผู้ค้าผลไม้ 12 แผง
                   </div>
                 }
-                decisions={["อนุมัติให้วิศวกรเข้าซ่อมและเปลี่ยนพัดลมระบบทันที", "สั่งปรับสลับกระจายโหลดไฟฟ้าไปเครื่องปั่นไฟสำรอง 2", "ควบคุมขีดจำกัดความเร็วรอบจ่ายไฟเพื่อลดความร้อนชั่วคราว"]}
+                decisions={["ซ่อมเปลี่ยนพัดลมไฟฟ้าด่วน (-8,500 บ. อะไหล่)", "สลับจ่ายไฟไปตัวเครื่อง 2 (สูญเสียน้ำมันสำรอง 15%)", "คุมการจ่ายไฟเพื่อลดความร้อน (ลดความสว่าง 20%)"]}
                 onDecision={handleMakeDecision}
                 loggedDecision={getDecisionForCase("M01")}
               />
+
+              {workflowStatus["M01"] && (
+                <div className={`workflow-tracker-bar ${workflowStatus["M01"]}`}>
+                  <span className="pulse-dot"></span>
+                  <span>สถานะสั่งการ: <strong>{
+                    workflowStatus["M01"] === "ordered" ? "🕒 ส่งกำลังทีมช่างนำอะไหล่เข้าพื้นที่ GEN-01..." : "✓ เสร็จสมบูรณ์ (เปลี่ยนชิ้นส่วนพัดลมสำเร็จ อุณหภูมิเป็นปกติ 100% Run)"
+                  }</strong></span>
+                </div>
+              )}
 
               <DecisionCard
                 caseId="M02"
@@ -599,10 +758,19 @@ export default function Executive() {
                     เปรียบเทียบ KPI SLA: <strong>ความรวดเร็วงานซ่อมด่วนต้องสำเร็จใน 2 ชม. (SLA Met &gt; 95%)</strong> แต่อัตราปิดงานสัปดาห์นี้ทำได้เพียง 91% เนื่องจากขาดแคลนชิ้นส่วนสายไฟและข้อต่อในสต็อกกลาง
                   </div>
                 }
-                decisions={["อนุมัติงบฉุกเฉินจัดซื้อสต็อกสายไฟและอะไหล่กลางด่วน", "ปรับตารางแบ่งเขตโซนรับผิดชอบของช่างซ่อมบำรุงใหม่", "ขยายช่วงขีดจำกัด SLA ซ่อมด่วนจาก 2 ชม. เป็น 3 ชม."]}
+                decisions={["จัดซื้ออะไหล่สต็อกสายไฟสำรอง (-15,000 บ.)", "แบ่งโซนเขตรับผิดชอบทีมช่างใหม่ (ค่าใช้จ่าย 0 บ.)", "ขยาย SLA ซ่อมด่วนเป็น 3 ชม. (เสียความเชื่อมั่นผู้ค้า 5%)"]}
                 onDecision={handleMakeDecision}
                 loggedDecision={getDecisionForCase("M02")}
               />
+
+              {workflowStatus["M02"] && (
+                <div className={`workflow-tracker-bar ${workflowStatus["M02"]}`}>
+                  <span className="pulse-dot"></span>
+                  <span>สถานะสั่งการ: <strong>{
+                    workflowStatus["M02"] === "ordered" ? "🕒 ส่งคำสั่งการคลังสินค้าเบิกซื้ออะไหล่..." : "✓ เสร็จสมบูรณ์ (ขจัดคอขวดวัสดุพร้อมประกันความเร็ว SLA 98% จบงาน)"
+                  }</strong></span>
+                </div>
+              )}
             </div>
           )}
 
@@ -752,6 +920,89 @@ export default function Executive() {
         </div>
       </div>
 
+      {/* ========================================================================= */}
+      {/* GAP 5: SMM BOARD BRIEFING PRINT/EXPORT MODAL */}
+      {/* ========================================================================= */}
+      {showExportModal && (
+        <div className="modal-backdrop">
+          <div className="modal-content card">
+            <div className="modal-header">
+              <h2 className="font-display">📄 เอกสารสรุปข้อสั่งการและตัวชี้วัด (Board Briefing Memo)</h2>
+              <button className="close-modal-btn" onClick={() => setShowExportModal(false)}>✕</button>
+            </div>
+            
+            <div className="modal-body-printable" id="printable-memo">
+              <div className="memo-top-brand">
+                <span className="memo-brand-title">บันทึกข้อความภายใน ตลาดสี่มุมเมือง</span>
+              </div>
+              <table className="memo-meta-table">
+                <tbody>
+                  <tr>
+                    <td><strong>จาก:</strong> ระบบสารสนเทศตัดสินใจอัจฉริยะ (Decision Intelligence)</td>
+                    <td><strong>ถึง:</strong> คณะกรรมการบริหารงานตลาดสี่มุมเมือง</td>
+                  </tr>
+                  <tr>
+                    <td><strong>วันที่รายงาน:</strong> {new Date().toLocaleDateString("th-TH")}</td>
+                    <td><strong>ฝ่ายที่พิจารณา:</strong> ทุกฝ่ายงานความสอดคล้อง</td>
+                  </tr>
+                  <tr>
+                    <td colSpan={2}><strong>เรื่อง:</strong> รายงานสรุปดัชนี KPI และประวัติคำอนุมัติข้อสั่งการเพื่อระบายปัญหาวิกฤต</td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <div className="memo-section">
+                <h4>1. สรุปสถานะเป้าหมาย KPI สัปดาห์นี้</h4>
+                <p>ขณะนี้ระบบบันทึกความล้มเหลวหลุดเกณฑ์เป้าหมายใน 4 ส่วนหลัก ได้แก่ ขยะล้นลานผักสะสม Zone C (92%), คิวรถติดขวางสะสมหน้าประตูทางเข้า Gate 3 (15 นาที), แรงงานลงสินค้าจอดแช่ช้า (31 นาที), และเครื่องปั่นไฟสำรองหลักชำรุดเสียหายขัดข้อง Breakdown สะสม 120 นาที</p>
+              </div>
+
+              <div className="memo-section">
+                <h4>2. ประวัติและผลลัพธ์การสั่งคำอนุมัตินโยบายในรอบวัน</h4>
+                {loggedDecisions.length === 0 ? (
+                  <p className="empty-note">ไม่มีการสั่งการอนุมัติใดๆ ในเซสชันนี้</p>
+                ) : (
+                  <table className="memo-decision-table">
+                    <thead>
+                      <tr>
+                        <th>รหัสเคส</th>
+                        <th>คำสั่งการที่อนุมัติเชิงนโยบาย</th>
+                        <th>เวลาและผู้สั่งการ</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {loggedDecisions.map((dec) => (
+                        <tr key={dec.id}>
+                          <td><strong>Case {dec.caseId}</strong></td>
+                          <td>{dec.decisionText}</td>
+                          <td>{dec.timestamp}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+              
+              <div className="memo-sign-section">
+                <div className="sign-placeholder">
+                  <p>ลงนามผู้ประเมินสูงสุด</p>
+                  <p style={{ marginTop: 40, borderBottom: "1.5px solid var(--ink)", width: 180, display: "inline-block" }}></p>
+                  <p>(.........................................................)</p>
+                  <p>คณะกรรมการบริหารงานตลาดสี่มุมเมือง</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="modal-footer-actions">
+              <button className="btn secondary" onClick={() => window.print()}>🖨️ พิมพ์รายงานราชการ (Print PDF)</button>
+              <button className="btn" onClick={() => {
+                alert("ระบบจำลอง: ได้ทำการส่งข้อมูลสรุปข้อสั่งการเข้าห้องแชท LINE OA ของทีมผู้จัดการตลาด เรียบร้อยแล้วครับ! 💬");
+                setShowExportModal(false);
+              }}>💬 ส่งข้อความแชร์เข้า LINE OA</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <style jsx global>{`
         /* Dept Switcher Tabs styling */
         .dept-tabs-container {
@@ -861,6 +1112,209 @@ export default function Executive() {
         }
         .kpi-state-alert .current-val {
           color: var(--red);
+        }
+
+        /* GAP 1: Historical Trend Table CSS */
+        .trend-table-wrapper {
+          overflow-x: auto;
+        }
+        .trend-table {
+          width: 100%;
+          border-collapse: collapse;
+          font-size: 0.88rem;
+          margin-top: 10px;
+        }
+        .trend-table th {
+          background: #f8fafc;
+          border-bottom: 2px solid var(--line);
+          padding: 10px;
+          text-align: left;
+          font-weight: 700;
+        }
+        .trend-table td {
+          border-bottom: 1px solid var(--line);
+          padding: 10px;
+        }
+        .trend-indicator-badge {
+          font-size: 0.72rem;
+          font-weight: bold;
+          padding: 2px 8px;
+          border-radius: 99px;
+        }
+        .trend-indicator-badge.pass { background: var(--green-soft); color: var(--green); }
+        .trend-indicator-badge.warning { background: var(--gold-soft); color: var(--gold); }
+        .trend-indicator-badge.alert { background: var(--red-soft); color: var(--red); }
+
+        /* GAP 4: Workflow Progress Tracker CSS */
+        .workflow-tracker-bar {
+          background: #f8fafc;
+          border: 1px solid var(--line);
+          padding: 10px 14px;
+          border-radius: var(--radius);
+          margin: -10px 0 20px 0;
+          font-size: 0.82rem;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          border-left: 4px solid var(--red);
+        }
+        .workflow-tracker-bar.completed {
+          background: var(--green-soft);
+          border-color: var(--green);
+          border-left-color: var(--green);
+          color: #234f32;
+        }
+        .pulse-dot {
+          width: 8px;
+          height: 8px;
+          background: var(--red);
+          border-radius: 99px;
+          animation: pulse 1.5s infinite;
+        }
+        .workflow-tracker-bar.completed .pulse-dot {
+          background: var(--green);
+          animation: none;
+        }
+        @keyframes pulse {
+          0% { transform: scale(0.9); opacity: 0.8; }
+          50% { transform: scale(1.3); opacity: 1; }
+          100% { transform: scale(0.9); opacity: 0.8; }
+        }
+
+        /* GAP 5: Export Modal Layout */
+        .modal-backdrop {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(15, 23, 42, 0.6);
+          backdrop-filter: blur(4px);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1000;
+          padding: 24px;
+        }
+        .modal-content {
+          width: 100%;
+          max-width: 680px;
+          max-height: 90vh;
+          overflow-y: auto;
+          background: white;
+          padding: 28px !important;
+          border-top: 5px solid var(--red-dark) !important;
+          display: flex;
+          flex-direction: column;
+        }
+        .modal-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          border-bottom: 2px solid var(--line);
+          padding-bottom: 12px;
+          margin-bottom: 20px;
+        }
+        .modal-header h2 {
+          margin: 0;
+          font-size: 1.25rem;
+          font-weight: 700;
+          color: var(--red-dark);
+        }
+        .close-modal-btn {
+          background: transparent;
+          border: none;
+          font-size: 1.4rem;
+          cursor: pointer;
+          color: var(--ink-soft);
+        }
+        .modal-footer-actions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 12px;
+          margin-top: 24px;
+          border-top: 1px solid var(--line);
+          padding-top: 16px;
+        }
+
+        /* Printable SMM board memo styling */
+        .memo-top-brand {
+          border-bottom: 2.5px double var(--ink);
+          text-align: center;
+          padding-bottom: 8px;
+          margin-bottom: 16px;
+        }
+        .memo-brand-title {
+          font-family: var(--font-display);
+          font-size: 1.4rem;
+          font-weight: 700;
+          color: var(--red-dark);
+        }
+        .memo-meta-table {
+          width: 100%;
+          border-collapse: collapse;
+          font-size: 0.88rem;
+          margin-bottom: 20px;
+        }
+        .memo-meta-table td {
+          padding: 6px 0;
+          border-bottom: 1px dashed var(--line);
+        }
+        .memo-section {
+          margin-bottom: 20px;
+        }
+        .memo-section h4 {
+          margin: 0 0 6px 0;
+          font-size: 0.95rem;
+          color: var(--red-dark);
+          border-left: 3px solid var(--red);
+          padding-left: 8px;
+        }
+        .memo-section p {
+          font-size: 0.88rem;
+          line-height: 1.5;
+          margin: 0;
+        }
+        .memo-decision-table {
+          width: 100%;
+          border-collapse: collapse;
+          font-size: 0.82rem;
+          margin-top: 8px;
+        }
+        .memo-decision-table th {
+          background: #f8fafc;
+          padding: 8px;
+          border: 1px solid var(--line);
+          text-align: left;
+        }
+        .memo-decision-table td {
+          padding: 8px;
+          border: 1px solid var(--line);
+        }
+        .memo-sign-section {
+          display: flex;
+          justify-content: flex-end;
+          margin-top: 40px;
+          text-align: center;
+          font-size: 0.85rem;
+        }
+
+        /* Printable media queries CSS override */
+        @media print {
+          body * {
+            visibility: hidden;
+          }
+          #printable-memo, #printable-memo * {
+            visibility: visible;
+          }
+          #printable-memo {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            background: white;
+            padding: 20px;
+          }
         }
 
         /* Executive Page layout */
