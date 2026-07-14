@@ -109,6 +109,8 @@ export default function Executive() {
         fuelLogs: execData?.fuelLogs,
         binWashLogs: execData?.binWashLogs,
         migrantWorkers: execData?.migrantWorkers,
+        maintBreakdowns: execData?.maintBreakdowns,
+        slaRequests: execData?.slaRequests,
         recentSubmissions: reports.filter(r => r.departmentId === activeDeptId).slice(0, 10)
       };
 
@@ -177,6 +179,12 @@ export default function Executive() {
         { label: "ต่างด้าวเอกสารใกล้หมดสิทธิ์", target: "0 ราย", current: "16 ราย (เตือน)", status: "warning" },
         { label: "รถโฟล์กลิฟต์จอดว่างงาน (Idle)", target: "Utilization 70%", current: "18 คัน (50%)", status: "warning" }
       ];
+    } else if (activeDeptId === "d-maintenance") {
+      return [
+        { label: "การใช้เครื่องจักร (Utilization)", target: "> 80%", current: "45.0% (Gen 1)", status: "alert" },
+        { label: "เครื่องจักรชำรุดสะสม (Breakdown)", target: "0 นาที", current: "พบ 120 นาที", status: "alert" },
+        { label: "ความเร็วงานซ่อมตาม SLA Met", target: "> 95%", current: "91.0%", status: "warning" }
+      ];
     }
     return [];
   }, [activeDeptId]);
@@ -200,6 +208,12 @@ export default function Executive() {
         { label: "🔎 ยอดจำนวนแรงงานกะเช้าเทียบกับรถขนของเข้าลาน", text: "วิเคราะห์ประสิทธิภาพกำลังคน 185 คนเทียบกับรถขนของเข้าลาน 460 คันประจำกะเช้า" },
         { label: "🔎 ตรวจสอบแรงงานต่างด้าววีซ่า/Work Permit ใกล้หมดอายุ", text: "รายงานต่างด้าว 16 รายที่วีซ่าและ Work Permit ใกล้สิ้นสุดสิทธิ์ในอีก 15 วันมีรายละเอียดอย่างไร" },
         { label: "🔎 ประสิทธิภาพชั่วโมงโอทีล่วงหน้าและอัตราการรัน Forklift", text: "ขอดูอัตรา Utilization ของรถ Forklift และยอดโอทีสะสมที่เกินเป้าหมาย 12%" }
+      ];
+    } else if (activeDeptId === "d-maintenance") {
+      return [
+        { label: "🔎 รายงาน Breakdown และประสิทธิภาพ Utilization เครื่องจักร", text: "สรุปปัญหาสัญญาณขัดข้องของเครื่องปั่นไฟสำรอง GEN-01 และอัตราการ Utilize ล่าสุด" },
+        { label: "🔎 ตรวจสอบใบงานซ่อมที่ล่าช้าเกินเวลาข้อตกลง SLA", text: "ขอดูรายชื่องานแจ้งซ่อมและรายงานใบงาน RQ-1045 ซ่อมล่าช้าขัด SLA" },
+        { label: "🔎 ข้อมูลการวางแผนซ่อมบำรุงเชิงป้องกัน (PM) รถตักและปั๊ม", text: "ตรวจเช็คสภาพปั๊มสูบระบายหลักและชั่วโมงการเดินเครื่องสะสมสัปดาห์นี้" }
       ];
     }
     return [];
@@ -238,6 +252,13 @@ export default function Executive() {
         >
           👥 ฝ่ายแรงงาน
         </button>
+        <button 
+          className={`dept-tab-btn maint-btn ${activeDeptId === "d-maintenance" ? "active" : ""}`}
+          onClick={() => setActiveDeptId("d-maintenance")}
+          style={{ borderLeftColor: "var(--red)" }}
+        >
+          🔧 ฝ่ายซ่อมบำรุง
+        </button>
       </div>
 
       {/* ========================================================================= */}
@@ -271,7 +292,11 @@ export default function Executive() {
             <h2 style={{ margin: "0 0 8px 0", fontFamily: "var(--font-display)", fontSize: "1.4rem" }}>
               📋 สรุปตัวชี้วัดประเด็นร้อน & ลิสต์ส่งคำสั่งตัดสินใจ (Case 5)
             </h2>
-            <p className="briefing-dept-sub font-display">วิเคราะห์เฉพาะ: {activeDeptId === "d-clean" ? "ฝ่ายรักษาความสะอาด" : activeDeptId === "d-security" ? "ฝ่ายความปลอดภัย" : "ฝ่ายแรงงาน"}</p>
+            <p className="briefing-dept-sub font-display">วิเคราะห์เฉพาะ: {
+              activeDeptId === "d-clean" ? "ฝ่ายรักษาความสะอาด" : 
+              activeDeptId === "d-security" ? "ฝ่ายความปลอดภัย" : 
+              activeDeptId === "d-labor" ? "ฝ่ายแรงงาน" : "ฝ่ายซ่อมบำรุง"
+            }</p>
 
             <div className="briefing-action-header">
               <p style={{ margin: 0, color: "var(--ink-soft)", fontSize: "0.92rem", flex: 1 }}>
@@ -366,6 +391,29 @@ export default function Executive() {
                           <span>สั่งจัดกะระดมแรงงานต่างด้าวคัดแยกเสริมขจัดความล่าช้าการโหลดสินค้า</span>
                           <button className="jump-link-btn" onClick={() => handleScrollToCase("L02")}>
                             ➔ ตรวจเกณฑ์และอนุมัติ (UC-L02)
+                          </button>
+                        </div>
+                      </li>
+                    </>
+                  )}
+
+                  {activeDeptId === "d-maintenance" && (
+                    <>
+                      <li>
+                        <span className="bullet">📌</span>
+                        <div className="todo-item-desc">
+                          <span>อนุมัติโครงการซ่อมแซมใหญ่เปลี่ยนพัดลมความร้อนเพื่อกู้เครื่อง Gen-01 หลังขัดข้อง Breakdown</span>
+                          <button className="jump-link-btn" onClick={() => handleScrollToCase("M01")}>
+                            ➔ ตรวจเกณฑ์และอนุมัติ (UC-M01)
+                          </button>
+                        </div>
+                      </li>
+                      <li>
+                        <span className="bullet">📌</span>
+                        <div className="todo-item-desc">
+                          <span>อนุมัติมาตรการปรับสต็อกชิ้นส่วนอะไหล่สายไฟแก้ปัญหางานซ่อมเกินกำหนด SLA</span>
+                          <button className="jump-link-btn" onClick={() => handleScrollToCase("M02")}>
+                            ➔ ตรวจเกณฑ์และอนุมัติ (UC-M02)
                           </button>
                         </div>
                       </li>
@@ -513,6 +561,51 @@ export default function Executive() {
             </div>
           )}
 
+          {/* ========================================================================= */}
+          {/* D. ฝ่ายซ่อมบำรุง (Maintenance Cases) */}
+          {/* ========================================================================= */}
+          {activeDeptId === "d-maintenance" && (
+            <div className="dept-cases-list">
+              <DecisionCard
+                caseId="M01"
+                aiLabel="Preventative Maintenance"
+                title="เครื่องผลิตไฟสำรองเกิด Breakdown ขัดข้องกระทบความสม่ำเสมอ"
+                what={
+                  <div>
+                    ตรวจพบเครื่องปั่นไฟฟ้าอาคารผลไม้หลัก (GEN-01) ชำรุดเสียหายขัดข้อง Breakdown สะสมยาวนาน <strong>120 นาที</strong> ส่งผลให้อัตราใช้เครื่องจักรลดลงเหลือ <strong>45%</strong>
+                  </div>
+                }
+                why={
+                  <div>
+                    เปรียบเทียบตามเกณฑ์ควบคุมขัดข้อง: <strong>Breakdown ต้องเป็น 0 และ Utilize ต้อง &gt; 80%</strong> เครื่องเกิดความร้อนในห้องสูบน้ำหล่อเย็นสูง หากไม่เร่งเปลี่ยนพัดลมความร้อนด่วน จะเกิดความเสี่ยงไฟฟ้าดับกระทบระบบห้องเย็นผู้ค้าผลไม้ 12 แผง
+                  </div>
+                }
+                decisions={["อนุมัติให้วิศวกรเข้าซ่อมและเปลี่ยนพัดลมระบบทันที", "สั่งปรับสลับกระจายโหลดไฟฟ้าไปเครื่องปั่นไฟสำรอง 2", "ควบคุมขีดจำกัดความเร็วรอบจ่ายไฟเพื่อลดความร้อนชั่วคราว"]}
+                onDecision={handleMakeDecision}
+                loggedDecision={getDecisionForCase("M01")}
+              />
+
+              <DecisionCard
+                caseId="M02"
+                aiLabel="SLA Compliance"
+                title="อัตราความเร็วในการจบงานซ่อมแผงค้าและระบบหลุดเกณฑ์ SLA ตลาด"
+                what={
+                  <div>
+                    ยอดการปิดงานแจ้งซ่อมระบบประปาและไฟฟ้ารอบสัปดาห์นี้ <strong>หลุดมาตรฐานข้อตกลง SLA รวม 9 รายการ</strong> เช่น งานซ่อมไฟฟ้า RQ-1045 ล่าช้าเกิน 180 นาที
+                  </div>
+                }
+                why={
+                  <div>
+                    เปรียบเทียบ KPI SLA: <strong>ความรวดเร็วงานซ่อมด่วนต้องสำเร็จใน 2 ชม. (SLA Met &gt; 95%)</strong> แต่อัตราปิดงานสัปดาห์นี้ทำได้เพียง 91% เนื่องจากขาดแคลนชิ้นส่วนสายไฟและข้อต่อในสต็อกกลาง
+                  </div>
+                }
+                decisions={["อนุมัติงบฉุกเฉินจัดซื้อสต็อกสายไฟและอะไหล่กลางด่วน", "ปรับตารางแบ่งเขตโซนรับผิดชอบของช่างซ่อมบำรุงใหม่", "ขยายช่วงขีดจำกัด SLA ซ่อมด่วนจาก 2 ชม. เป็น 3 ชม."]}
+                onDecision={handleMakeDecision}
+                loggedDecision={getDecisionForCase("M02")}
+              />
+            </div>
+          )}
+
           <div style={{ margin: "32px 0 20px 0", borderBottom: "2px solid var(--line)" }} />
 
           {/* ========================================================================= */}
@@ -527,7 +620,11 @@ export default function Executive() {
               💬 ผู้ช่วยวิเคราะห์ปฏิบัติงานเชิงลึก (Executive Copilot)
             </h3>
             <p style={{ color: "var(--ink-soft)", fontSize: "0.85rem", margin: "0 0 20px 0" }}>
-              พิมพ์ประเมินความสอดคล้อง ดึงประวัติน้ำมันรถขยะ หรือกดหัวข้อจำลองทางเลือกด้านล่างที่วิเคราะห์เฉพาะ **{activeDeptId === "d-clean" ? "ฝ่ายรักษาความสะอาด" : activeDeptId === "d-security" ? "ฝ่ายความปลอดภัย" : "ฝ่ายแรงงาน"}** ได้ทันที
+              พิมพ์ประเมินความสอดคล้อง ดึงประวัติน้ำมันรถขยะ หรือกดหัวข้อจำลองทางเลือกด้านล่างที่วิเคราะห์เฉพาะ **{
+                activeDeptId === "d-clean" ? "ฝ่ายรักษาความสะอาด" : 
+                activeDeptId === "d-security" ? "ฝ่ายความปลอดภัย" : 
+                activeDeptId === "d-labor" ? "ฝ่ายแรงงาน" : "ฝ่ายซ่อมบำรุง"
+              }** ได้ทันที
             </p>
 
             {/* Dynamic Suggested Chips based on Active Department */}
@@ -565,7 +662,12 @@ export default function Executive() {
                             type="button"
                             className="btn decision-btn inline-btn"
                             onClick={() => {
-                              handleMakeDecision(activeDeptId === "d-clean" ? "C01" : activeDeptId === "d-security" ? "S01" : "L01", `[จากแชท] ${btnText}`);
+                              handleMakeDecision(
+                                activeDeptId === "d-clean" ? "C01" : 
+                                activeDeptId === "d-security" ? "S01" : 
+                                activeDeptId === "d-labor" ? "L01" : "M01", 
+                                `[จากแชท] ${btnText}`
+                              );
                               setCopilotMessages(prev => [
                                 ...prev,
                                 { role: "assistant", text: `✓ บันทึกข้อสั่งการอนุมัติของผู้บริหาร: "${btnText}" และสั่งจ่ายใบงานเรียบร้อยแล้ว` }
@@ -592,7 +694,11 @@ export default function Executive() {
             <div className="copilot-chat-input-bar">
               <input
                 type="text"
-                placeholder={`ถามความล่าช้า, ตารางตรวจไมล์รถ หรือดัชนีชี้วัดของ${activeDeptId === "d-clean" ? "บ่อบำบัดน้ำเสีย/การใช้น้ำมัน" : activeDeptId === "d-security" ? "คิวรถติดขัด/รถจอดแช่" : "อัตราโอที/วีซ่าต่างด้าว"}...`}
+                placeholder={`ถามความล่าช้า, ตารางตรวจไมล์รถ หรือดัชนีชี้วัดของ${
+                  activeDeptId === "d-clean" ? "บ่อบำบัดน้ำเสีย/การใช้น้ำมัน" : 
+                  activeDeptId === "d-security" ? "คิวรถติดขัด/รถจอดแช่" : 
+                  activeDeptId === "d-labor" ? "อัตราโอที/วีซ่าต่างด้าว" : "ชั่วโมง Breakdown/งานซ่อม SLA"
+                }...`}
                 value={copilotQuery}
                 onChange={(e) => setCopilotQuery(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") handleSendCopilotQuery(); }}
