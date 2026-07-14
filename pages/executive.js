@@ -2,7 +2,6 @@ import { useEffect, useState, useMemo } from "react";
 import Layout from "../components/Layout";
 import DecisionCard from "../components/DecisionCard";
 import { getReports, computeStats, getExecutiveData, getExecutiveDecisions, logExecutiveDecision, clearExecutiveDecisions } from "../lib/storage";
-import { calculateMaintenanceRisk, detectReportingAnomaly, forecastLaborRequirements, calculatePriorityScores } from "../lib/executiveLogic";
 
 export default function Executive() {
   const [reports, setReports] = useState([]);
@@ -49,7 +48,19 @@ export default function Executive() {
     setLoggedDecisions(getExecutiveDecisions());
   }
 
-  // กดเลือกคำตอบตัดสินใจบนการ์ด (อัปเกรด GAP 4: Closed-loop status update)
+  // เลื่อนไปที่เคสการตัดสินใจ
+  function handleScrollToCase(caseNum) {
+    const el = document.getElementById(`case-${caseNum}`);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.style.backgroundColor = "var(--gold-soft)";
+      setTimeout(() => {
+        el.style.backgroundColor = "var(--paper-raised)";
+      }, 1000);
+    }
+  }
+
+  // กดเลือกคำตอบตัดสินใจบนการ์ด
   function handleMakeDecision(caseId, decisionText) {
     const record = logExecutiveDecision(caseId, decisionText);
     setLoggedDecisions(prev => [...prev, record]);
@@ -60,7 +71,7 @@ export default function Executive() {
       [caseId]: "ordered"
     }));
 
-    // จำลองการอัปเดตสถานะงานหลังจากช่างได้รับคำสั่ง (5 วินาทีต่อมา)
+    // จำลองการอัปเดตสถานะงานหลังจากปฏิบัติการตอบกลับ (4 วินาที)
     setTimeout(() => {
       setWorkflowStatus(prev => ({
         ...prev,
@@ -168,25 +179,25 @@ export default function Executive() {
     return loggedDecisions.find(d => d.caseId === caseId);
   };
 
-  // แถบเป้าหมายตัวชี้วัด KPI รายฝ่ายงานตามเอกสารเปรียบเทียบในระบบจริง
+  // แถบเป้าหมายตัวชี้วัด KPI รายฝ่ายงาน ปรับแก้ตามคำสั่งตลาดสี่มุมเมืองล่าสุด
   const kpiMetrics = useMemo(() => {
     if (activeDeptId === "d-clean") {
       return [
-        { label: "ระดับขยะล้นถัง (Overflow Bin)", target: "< 80%", current: "92.0%", status: "alert" },
-        { label: "การล้างถังขยะประจำวัน", target: ">= 2 รอบ", current: "1.0 รอบ", status: "warning" },
-        { label: "ดัชนีบำบัดน้ำเสีย COD", target: "< 120 mg/L", current: "160 mg/L", status: "alert" }
+        { label: "ระดับขยะล้นถัง (Organic Waste Overflow)", target: "< 80%", current: "92.0%", status: "alert" },
+        { label: "คุณภาพน้ำทิ้งบ่อบำบัด COD", target: "< 120 mg/L", current: "160 mg/L", status: "alert" },
+        { label: "เคลียร์ข้อร้องเรียนจุดสกปรกตาม SLA", target: "> 95%", current: "88.0%", status: "warning" }
       ];
     } else if (activeDeptId === "d-security") {
       return [
-        { label: "เวลารถกระบะจอดแช่ขนสินค้า", target: "< 25 นาที", current: "34 นาที", status: "warning" },
-        { label: "เวลารอคิวจราจรเฉลี่ย (Queue)", target: "< 15 นาที", current: "34 นาที", status: "alert" },
-        { label: "ระยะเวลาเคลียร์คอขวดสะสม", target: "< 8 นาที", current: "15 นาที", status: "alert" }
+        { label: "เวลาเคลียร์การจราจรติดขัด", target: "< 5 นาที", current: "15 นาที", status: "alert" },
+        { label: "จัดระเบียบรถเข้าอาคารลานผัก", target: "<= 40 นาที/รอบ", current: "42 นาที", status: "warning" },
+        { label: "การจัดการแอบลักลอบจอดรถ", target: "สูงสุด (เป้า > 95%)", current: "82% (มีข้อร้องเรียน)", status: "warning" }
       ];
     } else if (activeDeptId === "d-labor") {
       return [
-        { label: "ชั่วโมงโอทีสะสม (Overtime Hours)", target: "< 12%", current: "124 ชม. (21%)", status: "alert" },
-        { label: "ต่างด้าวเอกสารใกล้หมดสิทธิ์", target: "0 ราย", current: "16 ราย (เตือน)", status: "warning" },
-        { label: "รถโฟล์กลิฟต์จอดว่างงาน (Idle)", target: "Utilization 70%", current: "18 คัน (50%)", status: "warning" }
+        { label: "ลูกค้ารอคอยลงของนานสุด", target: "< 10 นาที", current: "22 นาที", status: "alert" },
+        { label: "เวลาลงสินค้าสำเร็จตาม SLA", target: "> 90%", current: "81.0%", status: "warning" },
+        { label: "การใช้งาน Forklift & ตรวจ PM", target: ">= 80% (ตรวจ PM)", current: "50% (จอดทิ้ง / ไม่ได้ตรวจ)", status: "warning" }
       ];
     } else if (activeDeptId === "d-maintenance") {
       return [
@@ -198,65 +209,64 @@ export default function Executive() {
     return [];
   }, [activeDeptId]);
 
-  // สถิติข้อมูลแนวโน้ม 4 สัปดาห์ย้อนหลัง (GAP 1 - Historical Trend)
+  // สถิติข้อมูลแนวโน้ม 4 สัปดาห์ย้อนหลัง (GAP 1 - เรียงจากใหม่สุดไปเก่าสุดตามคำขอ)
   const historicalTrends = useMemo(() => {
     if (activeDeptId === "d-clean") {
       return [
-        { period: "3 สัปดาห์ก่อน", kpi1: "78%", kpi2: "2.1 รอบ", kpi3: "115 mg/L", state: "pass" },
-        { period: "2 สัปดาห์ก่อน", kpi1: "82%", kpi2: "1.8 รอบ", kpi3: "125 mg/L", state: "warning" },
-        { period: "สัปดาห์ก่อน", kpi1: "88%", kpi2: "1.4 รอบ", kpi3: "148 mg/L", state: "warning" },
-        { period: "สัปดาห์ปัจจุบัน (วิกฤต)", kpi1: "92%", kpi2: "1.0 รอบ", kpi3: "160 mg/L", state: "alert" }
+        { period: "สัปดาห์ปัจจุบัน (วิกฤต)", kpi1: "92%", kpi2: "160 mg/L", kpi3: "88%", state: "alert" },
+        { period: "สัปดาห์ก่อน", kpi1: "88%", kpi2: "148 mg/L", kpi3: "90%", state: "warning" },
+        { period: "2 สัปดาห์ก่อน", kpi1: "82%", kpi2: "125 mg/L", kpi3: "93%", state: "warning" },
+        { period: "3 สัปดาห์ก่อน", kpi1: "78%", kpi2: "115 mg/L", kpi3: "96%", state: "pass" }
       ];
     } else if (activeDeptId === "d-security") {
       return [
-        { period: "3 สัปดาห์ก่อน", kpi1: "21 นาที", kpi2: "12 นาที", kpi3: "6 นาที", state: "pass" },
-        { period: "2 สัปดาห์ก่อน", kpi1: "24 นาที", kpi2: "18 นาที", kpi3: "8 นาที", state: "warning" },
-        { period: "สัปดาห์ก่อน", kpi1: "29 นาที", kpi2: "26 นาที", kpi3: "12 นาที", state: "warning" },
-        { period: "สัปดาห์ปัจจุบัน (วิกฤต)", kpi1: "34 นาที", kpi2: "34 นาที", kpi3: "15 นาที", state: "alert" }
+        { period: "สัปดาห์ปัจจุบัน (วิกฤต)", kpi1: "15 นาที", kpi2: "42 นาที", kpi3: "82%", state: "alert" },
+        { period: "สัปดาห์ก่อน", kpi1: "11 นาที", kpi2: "39 นาที", kpi3: "87%", state: "warning" },
+        { period: "2 สัปดาห์ก่อน", kpi1: "6 นาที", kpi2: "38 นาที", kpi3: "92%", state: "warning" },
+        { period: "3 สัปดาห์ก่อน", kpi1: "4 นาที", kpi2: "35 นาที", kpi3: "96%", state: "pass" }
       ];
     } else if (activeDeptId === "d-labor") {
       return [
-        { period: "3 สัปดาห์ก่อน", kpi1: "9.2%", kpi2: "2 ราย", kpi3: "68%", state: "pass" },
-        { period: "2 สัปดาห์ก่อน", kpi1: "11.5%", kpi2: "5 ราย", kpi3: "65%", state: "pass" },
-        { period: "สัปดาห์ก่อน", kpi1: "16.8%", kpi2: "11 ราย", kpi3: "55%", state: "warning" },
-        { period: "สัปดาห์ปัจจุบัน (วิกฤต)", kpi1: "21.0%", kpi2: "16 ราย", kpi3: "50%", state: "alert" }
+        { period: "สัปดาห์ปัจจุบัน (วิกฤต)", kpi1: "22 นาที", kpi2: "81%", kpi3: "50% (งดตรวจ PM)", state: "alert" },
+        { period: "สัปดาห์ก่อน", kpi1: "18 นาที", kpi2: "83%", kpi3: "62% (ขาด PM)", state: "warning" },
+        { period: "2 สัปดาห์ก่อน", kpi1: "12 นาที", kpi2: "88%", kpi3: "75% (PM ครบ)", state: "warning" },
+        { period: "3 สัปดาห์ก่อน", kpi1: "8 นาที", kpi2: "92%", kpi3: "85% (PM ครบ)", state: "pass" }
       ];
     } else if (activeDeptId === "d-maintenance") {
       return [
-        { period: "3 สัปดาห์ก่อน", kpi1: "82%", kpi2: "0 นาที", kpi3: "98.2%", state: "pass" },
-        { period: "2 สัปดาห์ก่อน", kpi1: "78%", kpi2: "15 นาที", kpi3: "96.5%", state: "pass" },
+        { period: "สัปดาห์ปัจจุบัน (วิกฤต)", kpi1: "45%", kpi2: "120 นาที", kpi3: "91.0%", state: "alert" },
         { period: "สัปดาห์ก่อน", kpi1: "62%", kpi2: "45 นาที", kpi3: "93.4%", state: "warning" },
-        { period: "สัปดาห์ปัจจุบัน (วิกฤต)", kpi1: "45%", kpi2: "120 นาที", kpi3: "91.0%", state: "alert" }
+        { period: "2 สัปดาห์ก่อน", kpi1: "78%", kpi2: "15 นาที", kpi3: "96.5%", state: "pass" },
+        { period: "3 สัปดาห์ก่อน", kpi1: "82%", kpi2: "0 นาที", kpi3: "98.2%", state: "pass" }
       ];
     }
     return [];
   }, [activeDeptId]);
 
-  // คำแนะนำสืบค้นข้อมูล Copilot ที่เข้ากับ Use Cases ใหม่
-  const copilotSuggestions = useMemo(() => {
+  // ลิสต์คำถามด่วนอ้างอิงตามตัวชี้วัดความสอดคล้อง (Quick KPI Questions)
+  const quickQuestions = useMemo(() => {
     if (activeDeptId === "d-clean") {
       return [
-        { label: "🔎 ข้อมูลปั๊มบ่อน้ำเสียและระดับความเน่าเสีย BOD/COD", text: "รายงานค่า BOD/COD บ่อบำบัดน้ำเสียล่าสุดมีจุดใดหลุดเกณฑ์เป้าหมายบ้าง" },
-        { label: "🔎 รายละเอียดประสิทธิภาพน้ำมันรถขยะและไมล์ KM", text: "ตรวจสอบประสิทธิภาพการใช้น้ำมันและระยะทาง KM ของรถปฏิบัติการล้างถนนเทียบเป้าหมายประหยัด 5%" },
-        { label: "🔎 การแจ้งเตือนขยะผักอินทรีย์ล้นสะสม ณ Zone C", text: "วิเคราะห์สาเหตุและคาดการณ์ขยะผักอินทรีย์ล้นลานผัก Zone C ในอีก 38 นาที" }
+        { label: "วิเคราะห์เหตุการณ์ขยะล้น Zone C (92%)", text: "วิเคราะห์ขยะล้นถังขยะอินทรีย์ลานผัก Zone C สะสม 92% มีผลเสียอย่างไร" },
+        { label: "ดัชนี COD บ่อบำบัดน้ำเสียสูง (160 mg/L)", text: "รายงานค่า COD บ่อบำบัดน้ำเสียพุ่งสูง 160 mg/L ผิดเกณฑ์ควบคุมอย่างไร" },
+        { label: "ข้อร้องเรียนจุดสกปรกหลุดเกณฑ์ SLA", text: "มีข้อร้องเรียนจุดสกปรกแผงค้าใดบ้างที่ซ่อมเคลียร์ไม่ทัน SLA 30 นาที" }
       ];
     } else if (activeDeptId === "d-security") {
       return [
-        { label: "🔎 รายละเอียดปัญหารถคอก 70-4567 จอดแช่", text: "ตรวจสอบเหตุจอดแช่สะสมขวางลานขนถ่ายของรถทะเบียน 70-4567 ที่ Dock-B" },
-        { label: "🔎 ปัญหารถติดขัดสะสมคอขวดและเวลารอคิวเข้าลาน", text: "วิเคราะห์เวลารอเฉลี่ยของคิวรถ 31 คันและผลกระทบต่อแผงค้า 63 แผง" },
-        { label: "🔎 ตรวจสอบผู้ฝ่าฝืนจราจรคนเดินย้อนช่องโดย Vision AI", text: "มีรายงานกล้องวงจรปิด CCTV ตรวจจับคนเดินย้อนช่องเดินรถหรือรถผิดประเภทเข้ามาไหม" }
+        { label: "รายงานรถคอขวดติดด่านทางเข้าเกิน 5 นาที", text: "ขอดูรายงานปัญหารถติดคอขวดสะสมหน้าประตู Gate 3 นาน 15 นาที" },
+        { label: "เดินรถผักเข้าอาคารล่าช้า (42 นาที/รอบ)", text: "รถผักเข้าอาคารผลไม้ล่าช้า 42 นาที/รอบ เกิดจากอะไรและแก้ยังไง" },
+        { label: "วิเคราะห์ลักลอบจอดรถยนต์ส่วนบุคคล 18 เคส", text: "มีรายงานลักลอบแอบจอดรถทิ้งไม่ซื้อจริง และข้อร้องเรียนจากผู้ซื้อแท้จริงอย่างไรบ้าง" }
       ];
     } else if (activeDeptId === "d-labor") {
       return [
-        { label: "🔎 ยอดจำนวนแรงงานกะเช้าเทียบกับรถขนของเข้าลาน", text: "วิเคราะห์ประสิทธิภาพกำลังคน 185 คนเทียบกับรถขนของเข้าลาน 460 คันประจำกะเช้า" },
-        { label: "🔎 ตรวจสอบแรงงานต่างด้าววีซ่า/Work Permit ใกล้หมดอายุ", text: "รายงานต่างด้าว 16 รายที่วีซ่าและ Work Permit ใกล้สิ้นสุดสิทธิ์ในอีก 15 วันมีรายละเอียดอย่างไร" },
-        { label: "🔎 ประสิทธิภาพชั่วโมงโอทีล่วงหน้าและอัตราการรัน Forklift", text: "ขอดูอัตรา Utilization ของรถ Forklift และยอดโอทีสะสมที่เกินเป้าหมาย 12%" }
+        { label: "ลูกค้ารอคิวลงของเฉลี่ยวิกฤต (22 นาที)", text: "วิเคราะห์เวลารอคอยของรถลูกค้าลงสินค้าเฉลี่ย 22 นาที เกินเกณฑ์ 10 นาทีอย่างไร" },
+        { label: "เวลาลงสินค้าหลุด SLA สะสม 19%", text: "ทำไมเวลาโหลดของลงสินค้าถึงล่าช้ากว่ากำหนด SLA สะสมสูงถึง 19%" },
+        { label: "Forklift Utilization ตกต่ำ & ขาด PM", text: "ทำไม Forklift รันเฉลี่ยแค่ 50% และปัญหาการงดตรวจ PM ประจำรอบกะเช้า" }
       ];
     } else if (activeDeptId === "d-maintenance") {
       return [
-        { label: "🔎 รายงาน Breakdown และประสิทธิภาพ Utilization เครื่องจักร", text: "สรุปปัญหาสัญญาณขัดข้องของเครื่องปั่นไฟสำรอง GEN-01 และอัตราการ Utilize ล่าสุด" },
-        { label: "🔎 ตรวจสอบใบงานซ่อมที่ล่าช้าเกินเวลาข้อตกลง SLA", text: "ขอดูรายชื่องานแจ้งซ่อมและรายงานใบงาน RQ-1045 ซ่อมล่าช้าขัด SLA" },
-        { label: "🔎 ข้อมูลการวางแผนซ่อมบำมุงเชิงป้องกัน (PM) รถตักและปั๊ม", text: "ตรวจเช็คสภาพปั๊มสูบระบายหลักและชั่วโมงการเดินเครื่องสะสมสัปดาห์นี้" }
+        { label: "วิเคราะห์ Breakdown เครื่อง Gen-01 นาน 120 นาที", text: "สรุปปัญหาสัญญาณขัดข้องของเครื่องปั่นไฟสำรอง GEN-01 และอัตราการ Utilize ล่าสุด" },
+        { label: "ขอดูใบงานซ่อมระบบประปาไฟฟ้าขัดต่อ SLA", text: "ขอดูรายชื่องานแจ้งซ่อมและรายงานใบงาน RQ-1045 ซ่อมล่าช้าขัด SLA" }
       ];
     }
     return [];
@@ -332,14 +342,14 @@ export default function Executive() {
       </div>
 
       {/* ========================================================================= */}
-      {/* GAP 1: ตารางแสดงข้อมูลแนวโน้มเปรียบเทียบย้อนหลัง (Historical Trend Chart/Table) */}
+      {/* GAP 1: ตารางแสดงข้อมูลแนวโน้มเปรียบเทียบย้อนหลัง (เรียงจากล่าสุดลงไปหาเก่าตามใจผู้ใช้) */}
       {/* ========================================================================= */}
       <div className="card trend-panel" style={{ marginBottom: 20 }}>
         <h3 className="font-display" style={{ margin: "0 0 12px 0", fontSize: "1.1rem", color: "var(--red-dark)" }}>
-          📈 รายงานเปรียบเทียบแนวโน้ม 4 สัปดาห์ย้อนหลัง (Historical Trend Analyzer)
+          📈 รายงานเปรียบเทียบแนวโน้มย้อนหลัง (เรียงจากสัปดาห์ล่าสุด -> เก่าสุด)
         </h3>
         <p style={{ color: "var(--ink-soft)", fontSize: "0.85rem", margin: "0 0 14px 0" }}>
-          มอนิเตอร์ระดับประสิทธิภาพที่ถดถอยเชิงเปรียบเทียบสถิติ เพื่อบ่งชี้ปัญหาเรื้อรังที่จำเป็นต้องจัดสรรงบประมาณแก้ไขนโยบาย
+          แสดงทิศทางแนวโน้มเพื่อติดตามความคืบหน้าของมาตรการอนุมัติ โดยเรียงลำดับหัวข้อจากสัปดาห์ล่าสุดเพื่อให้พร้อมดูสถานะได้ทันที
         </p>
 
         <div className="trend-table-wrapper">
@@ -347,9 +357,9 @@ export default function Executive() {
             <thead>
               <tr>
                 <th>ระยะช่วงเวลา</th>
-                <th>{activeDeptId === "d-clean" ? "อัตราขยะล้นถัง" : activeDeptId === "d-security" ? "เวลารถจอดแช่" : activeDeptId === "d-labor" ? "ชั่วโมง OT สะสม" : "Utilize ปั๊ม/Gen"}</th>
-                <th>{activeDeptId === "d-clean" ? "การล้างถังขยะ" : activeDeptId === "d-security" ? "เวลารอคิวจราจร" : activeDeptId === "d-labor" ? "แรงงานใกล้หมดวีซ่า" : "ชั่วโมง Breakdown"}</th>
-                <th>{activeDeptId === "d-clean" ? "ระดับ COD เฉลี่ย" : activeDeptId === "d-security" ? "เวลาเคลียร์รถติด" : activeDeptId === "d-labor" ? "Forklift Idle" : "งานจบตาม SLA"}</th>
+                <th>{activeDeptId === "d-clean" ? "ระดับขยะล้นถัง" : activeDeptId === "d-security" ? "เวลาเคลียร์รถติด" : activeDeptId === "d-labor" ? "ลูกค้ารอลงของ" : "Utilize ปั๊ม/Gen"}</th>
+                <th>{activeDeptId === "d-clean" ? "น้ำทิ้ง COD บ่อบำบัด" : activeDeptId === "d-security" ? "เวลาจัดรถผัก" : activeDeptId === "d-labor" ? "เวลาลงสินค้า SLA" : "ชั่วโมง Breakdown"}</th>
+                <th>{activeDeptId === "d-clean" ? "งานเคลียร์จุดสกปรก (SLA)" : activeDeptId === "d-security" ? "เคลียร์ลักลอบจอด" : activeDeptId === "d-labor" ? "Forklift PM/Util" : "งานจบตาม SLA"}</th>
                 <th>ดัชนีรวมฝ่าย</th>
               </tr>
             </thead>
@@ -377,7 +387,7 @@ export default function Executive() {
         <div className="exec-main-content">
           
           {/* ========================================================================= */}
-          {/* Case 5: Weekly Briefing (Generative AI - filtered by selected department) */}
+          {/* Case 5: Weekly Briefing */}
           {/* ========================================================================= */}
           <div className="card briefing-panel" id="case-5">
             <div className="ai-tag-wrapper">
@@ -421,7 +431,6 @@ export default function Executive() {
                   🚨 ลิสต์ส่งคำอนุมัติสั่งการนโยบายด่วน:
                 </h4>
                 
-                {/* Dynamic Todo List based on Active Department */}
                 <ul className="briefing-todo-list">
                   {activeDeptId === "d-clean" && (
                     <>
@@ -437,7 +446,7 @@ export default function Executive() {
                       <li>
                         <span className="bullet">📌</span>
                         <div className="todo-item-desc">
-                          <span>จัดการสกัดกั้นปัญหาระบบบำบัดน้ำเสียเกินค่ามาตรฐานความปลอดภัย BOD/COD</span>
+                          <span>เร่งดึงและล้างจุดสกปรกค้างสะสมตาม SLA และควบคุมน้ำเสีย COD บ่อ 2</span>
                           <button className="jump-link-btn" onClick={() => handleScrollToCase("C02")}>
                             ➔ ตรวจเกณฑ์และอนุมัติ (UC-C02)
                           </button>
@@ -451,7 +460,7 @@ export default function Executive() {
                       <li>
                         <span className="bullet">📌</span>
                         <div className="todo-item-desc">
-                          <span>ส่ง รปภ. เคลียร์พื้นที่สะสมรถคอกจอดแช่เกินขอบเขตเวลา 25 นาที ณ Dock-B</span>
+                          <span>ส่ง รปภ. ตรวจและล็อกล้อรถแอบลักลอบจอดผิดกฎเพื่ออำนวยความสะดวกผู้ซื้อ</span>
                           <button className="jump-link-btn" onClick={() => handleScrollToCase("S01")}>
                             ➔ ตรวจเกณฑ์และอนุมัติ (UC-S01)
                           </button>
@@ -460,7 +469,7 @@ export default function Executive() {
                       <li>
                         <span className="bullet">📌</span>
                         <div className="todo-item-desc">
-                          <span>สั่งเปิด Gate ประตูทางเข้าออกเพิ่มเติมระบายจราจรคิวติดสะสม</span>
+                          <span>ปรับวิถีเดินรถและเพิ่มด่านทางเข้าเพื่อเคลียร์คอขวดสะสมจราจรต่ำกว่า 5 นาที</span>
                           <button className="jump-link-btn" onClick={() => handleScrollToCase("S02")}>
                             ➔ ตรวจเกณฑ์และอนุมัติ (UC-S02)
                           </button>
@@ -474,7 +483,7 @@ export default function Executive() {
                       <li>
                         <span className="bullet">📌</span>
                         <div className="todo-item-desc">
-                          <span>แจ้งจัดการเอกสาร Work Permit ของแรงงานต่างด้าวใกล้สิ้นสุดใบอนุญาตใน 15 วัน</span>
+                          <span>แก้ปัญหารถลูกค้ารอลงของนานเกิน 10 นาที ขัดเกณฑ์มาตรฐานการบริการ</span>
                           <button className="jump-link-btn" onClick={() => handleScrollToCase("L01")}>
                             ➔ ตรวจเกณฑ์และอนุมัติ (UC-L01)
                           </button>
@@ -483,7 +492,7 @@ export default function Executive() {
                       <li>
                         <span className="bullet">📌</span>
                         <div className="todo-item-desc">
-                          <span>สั่งจัดกะระดมแรงงานต่างด้าวคัดแยกเสริมขจัดความล่าช้าการโหลดสินค้า</span>
+                          <span>อนุมัติโครงการซ่อมตรวจสอบบำรุงรักษา PM พัฒนา Utilization Forklift &gt; 80%</span>
                           <button className="jump-link-btn" onClick={() => handleScrollToCase("L02")}>
                             ➔ ตรวจเกณฑ์และอนุมัติ (UC-L02)
                           </button>
@@ -497,7 +506,7 @@ export default function Executive() {
                       <li>
                         <span className="bullet">📌</span>
                         <div className="todo-item-desc">
-                          <span>อนุมัติโครงการซ่อมแซมใหญ่เปลี่ยนพัดลมความร้อนเพื่อกู้เครื่อง Gen-01 หลังขัดข้อง Breakdown</span>
+                          <span>อนุมัติโครงการซ่อมใหญ่เปลี่ยนพัดลมความร้อนเพื่อกู้เครื่อง Gen-01 หลังขัดข้อง Breakdown</span>
                           <button className="jump-link-btn" onClick={() => handleScrollToCase("M01")}>
                             ➔ ตรวจเกณฑ์และอนุมัติ (UC-M01)
                           </button>
@@ -545,7 +554,6 @@ export default function Executive() {
                 loggedDecision={getDecisionForCase("C01")}
               />
 
-              {/* GAP 4: Closed-loop status visualization on Case C01 */}
               {workflowStatus["C01"] && (
                 <div className={`workflow-tracker-bar ${workflowStatus["C01"]}`}>
                   <span className="pulse-dot"></span>
@@ -557,19 +565,19 @@ export default function Executive() {
 
               <DecisionCard
                 caseId="C02"
-                aiLabel="Rule-based AI"
-                title="ระบบบำบัดน้ำเสียหลักมีค่าความเน่าเสีย BOD/COD เกินค่าความปลอดภัย"
+                aiLabel="Complaints SLA + Water Quality"
+                title="ข้อร้องเรียนจุดสกปรกตามแผงค้าค้างชำระหลุดเกณฑ์ SLA และน้ำเสีย COD พุ่งสูง"
                 what={
                   <div>
-                    ดัชนีคุณภาพบ่อน้ำเสียมีค่าซีโอดี COD สูงวิกฤตพุ่งแตะ <strong>160 mg/L</strong> (หลุดเกณฑ์เป้าหมายมาตรฐาน)
+                    ข้อร้องเรียนความสกปรกสะสมบริเวณแผงสัตว์ปีกและลานปลา **หลุดเวลาปิดงาน SLA 6 รายการ** และดัชนีคุณภาพบ่อน้ำเสียมีค่าซีโอดี COD สูงวิกฤตพุ่งแตะ <strong>160 mg/L</strong> (หลุดเกณฑ์เป้าหมายมาตรฐาน)
                   </div>
                 }
                 why={
                   <div>
-                    เปรียบเทียบตามมาตรฐานควบคุมน้ำทิ้งตลาดสด: <strong>ค่า COD ห้ามเกิน 150 mg/L และค่า BOD ห้ามเกิน 20 mg/L</strong> ผลวัดล่าสุดพบ BOD สูง 25 mg/L เสี่ยงภัยต่อน้ำล้นคูคลองและสุขอนามัยตลาดโดนราชการปรับ
+                    เปรียบเทียบเกณฑ์ปิดงานสะอาด: **ต้องเคลียร์ขจัดจุดสกปรกเสร็จใน 30 นาที (SLA Met &gt; 95%)** แต่อัตรางานเคลียร์จริงทำได้ล่าช้าตกลงเหลือ 88% สอดคล้องกับค่า COD ทะลุเกณฑ์น้ำทิ้งตลาดสด (&lt; 120 mg/L)
                   </div>
                 }
-                decisions={["เปิดระบบปั๊มสูบเพิ่ม (ค่าไฟ +500 บ./วัน)", "ส่งช่างตรวจหาจุดปนเปื้อน (ค่าแรง 0 บ.)", "ระงับปล่อยน้ำเสียโซนล้าง (สูญเสียการรันแผง 20%)"]}
+                decisions={["สั่งระดมหน่วยฉีดน้ำล้างแผงด่วน (งบ +2,500 บ.)", "จัดโซนผู้รับผิดชอบกวาดจุดเปื้อนใหม่ (ค่าใช้จ่าย 0 บ.)", "ปรับลดขีดจำกัด SLA ซ่อมความสะอาดเป็น 45 นาที"]}
                 onDecision={handleMakeDecision}
                 loggedDecision={getDecisionForCase("C02")}
               />
@@ -578,7 +586,7 @@ export default function Executive() {
                 <div className={`workflow-tracker-bar ${workflowStatus["C02"]}`}>
                   <span className="pulse-dot"></span>
                   <span>สถานะสั่งการ: <strong>{
-                    workflowStatus["C02"] === "ordered" ? "🕒 ส่งคำสั่งเข้าปั๊มแล้ว (กำลังปรับแรงดันสูบ...)" : "✓ เสร็จสมบูรณ์ (ลดระดับน้ำตกค้างและบำบัดสารเคมีแล้ว)"
+                    workflowStatus["C02"] === "ordered" ? "🕒 ทีมฉีดล้างกำลังเคลื่อนที่เข้าจุดแผงค้า..." : "✓ เสร็จสมบูรณ์ (กวาดล้างคราบสิ่งปฏิกูลค้างท่อและบำบัดน้ำเป็นปกติแล้ว)"
                   }</strong></span>
                 </div>
               )}
@@ -592,19 +600,19 @@ export default function Executive() {
             <div className="dept-cases-list">
               <DecisionCard
                 caseId="S01"
-                aiLabel="Rule-based Alert"
-                title="ปัญหารถคอกจอดแช่ขนส่งสินค้ากีดขวางเลนจราจรลานหลัก"
+                aiLabel="Illegal Parking Gate"
+                title="รถยนต์แอบลักลอบจอดในที่จอดสำหรับผู้ซื้อสินค้า (Illegal Parking)"
                 what={
                   <div>
-                    ตรวจพบรถกระบะคอกลอยป้ายทะเบียน 70-4567 จอดโหลดของ ณ ลาน Dock-B <strong>ยาวนานถึง 34 นาที</strong>
+                    ตรวจพบรถยนต์แอบลักลอบจอดทิ้งไม่ซื้อจริงสะสมบริเวณลานจอดหลัก ส่งผลให้อัตราจอดแฝงสูงขึ้นและลดความสะดวกของผู้ซื้อบริการจริง (อัตราจัดการจอดแฝงสำเร็จเพียง <strong>82%</strong>)
                   </div>
                 }
                 why={
                   <div>
-                    เปรียบเทียบตามเป้าจอดแช่: <strong>ห้ามจอดแช่ขนของเกิน 25 นาที</strong> การจอดกีดขวางส่งผลกระทบต่อคิวขนานรถสะสมของสะพานเทียบแผงสินค้า และเกิดขวดขยะอับสายตา รบกวนรถบริการรอบอาคาร
+                    เป้าหมายที่จอดรถตลาด: **ต้องจัดการพวกลักลอบจอดและลดข้อร้องเรียนให้เหลือน้อยที่สุด** เพื่ออำนวยความสะดวกให้ผู้ซื้อเข้ามาหมุนเวียนได้สะดวก ปัจจุบันผู้ซื้อบ่นไม่มีที่จอดและมีข้อร้องเรียนสะสม 18 รายการ
                   </div>
                 }
-                decisions={["ส่ง รปภ. ล็อกล้อทันที (เก็บค่าปรับ +500 บ.)", "เปิดเลนช่องทางจอดสำรอง (ค่าดำเนินการ 0 บ.)", "จำกัดเวลาจอดเหลือ 15 นาทีเด็ดขาด (ลดโหลดขนถ่าย 10%)"]}
+                decisions={["สั่งล็อกล้อรถลักลอบจอดทันที (เก็บค่าปรับ +500 บ.)", "ติดตั้งกล้อง AI ตรวจจับรถแอบจอด (งบ +3,000 บ.)", "จัด รปภ. เฝ้ารายด่านลานจอดหลัก (+1,500 บ./กะ)"]}
                 onDecision={handleMakeDecision}
                 loggedDecision={getDecisionForCase("S01")}
               />
@@ -613,26 +621,26 @@ export default function Executive() {
                 <div className={`workflow-tracker-bar ${workflowStatus["S01"]}`}>
                   <span className="pulse-dot"></span>
                   <span>สถานะสั่งการ: <strong>{
-                    workflowStatus["S01"] === "ordered" ? "🕒 รปภ. กำลังเคลื่อนที่เข้าจุดจอด Dock-B..." : "✓ เสร็จสมบูรณ์ (ล็อกล้อรถฝ่าฝืนและเคลียร์จราจรเรียบร้อย)"
+                    workflowStatus["S01"] === "ordered" ? "🕒 รปภ. กำลังเคลื่อนที่ตรวจสอบและติดป้ายปรับ..." : "✓ เสร็จสมบูรณ์ (ล็อกล้อรถแฝงและสแกนสิทธิ์ทางเข้าอำนวยความสะดวกผู้ซื้อจริงแล้ว)"
                   }</strong></span>
                 </div>
               )}
 
               <DecisionCard
                 caseId="S02"
-                aiLabel="Queue Forecast"
-                title="คิวจราจรรถขนส่งติดสะสมคอขวดวิกฤตหน้าลานค้าหลัก"
+                aiLabel="Traffic Jam SLA"
+                title="จราจรทางเข้าคอขวดและจัดระเบียบรถผักเดินรอบอาคารล่าช้าขัดต่อเกณฑ์ 5 นาที"
                 what={
                   <div>
-                    แถวคิวรถสะสมหน้าอาคารหลักพุ่งสูง <strong>31 คัน</strong> ทำให้รถติดขัดหนาแน่นเวลารอพุ่งแตะ 15 นาที
+                    ระยะเวลารถติดขัดสะสมหนาแน่นด่านทางเข้า Gate 3 สูงถึง <strong>15 นาที</strong> และเวลารอบวิ่งจัดรถผักเข้าอาคารลานส่งเฉลี่ยพุ่งถึง <strong>42 นาทีต่อรอบ</strong>
                   </div>
                 }
                 why={
                   <div>
-                    เปรียบเทียบ KPI จราจร: <strong>ห้ามรถติดคอขวดสะสมเกิน 3 นาที</strong> AI คาดการณ์ว่าหากไม่สั่งระบายรถภายใน 25 นาที เวลารอเฉลี่ยจะพุ่งแตะ 42 นาทีต่อรอบ และกระทบแผงค้าแผงสินค้าผลผลิตเกษตร 63 แผง
+                    เกณฑ์ควบคุมจราจร: **รถติดห้ามเกิน 5 นาทีต้องเคลียร์** และ **จัดรถผักเข้าอาคารเป้าหมายต้องไม่เกิน 40 นาทีต่อรอบ** เพื่อขจัดคอขวดสะสมจราจรรถขนส่ง
                   </div>
                 }
-                decisions={["สั่งเปิดประตู Gate พิเศษเพิ่ม (+800 บ./กะ)", "ปรับแผนทางเดินรถสลับทิศทาง (ค่าใช้จ่าย 0 บ.)", "เรียกเสริมกำลังตำรวจและ รปภ. (+1,200 บ./วัน)"]}
+                decisions={["สั่งเปิดประตู Gate พิเศษเพิ่มเติม (+800 บ./กะ)", "ปรับแผนสลับเดินรถวันเวย์ทางเข้าออก (ค่าใช้จ่าย 0 บ.)", "เรียก รปภ. เสริมช่วยจัดคิวปล่อยรถผลไม้ (+1,200 บ./วัน)"]}
                 onDecision={handleMakeDecision}
                 loggedDecision={getDecisionForCase("S02")}
               />
@@ -641,7 +649,7 @@ export default function Executive() {
                 <div className={`workflow-tracker-bar ${workflowStatus["S02"]}`}>
                   <span className="pulse-dot"></span>
                   <span>สถานะสั่งการ: <strong>{
-                    workflowStatus["S02"] === "ordered" ? "🕒 กำลังเปิดช่องทางประตูระบายจราจร..." : "✓ เสร็จสมบูรณ์ (ระบายคิวสะสม 31 คัน รถวิ่งไหลลื่นปกติ)"
+                    workflowStatus["S02"] === "ordered" ? "🕒 กำลังปรับทิศทางทางเดินรถและเสริม รปภ. ด่านทางร่วม..." : "✓ เสร็จสมบูรณ์ (ระบายคิวรถสะสมหน้า Gate ต่ำกว่า 5 นาทีเป็นปกติ)"
                   }</strong></span>
                 </div>
               )}
@@ -655,19 +663,19 @@ export default function Executive() {
             <div className="dept-cases-list">
               <DecisionCard
                 caseId="L01"
-                aiLabel="Compliance Check"
-                title="วีซ่าและใบอนุญาตทำงานพนักงานต่างด้าวใกล้ครบกำหนดอายุ"
+                aiLabel="Customer Queue Delay"
+                title="เวลารอคอยของรถลูกค้าในการลงสินค้าขนถ่ายล่าช้าเกินกำหนด 10 นาที"
                 what={
                   <div>
-                    ตรวจพบพนักงานคัดแยกแรงงานต่างด้าว <strong>16 ราย</strong> ใบอนุญาต (Work Permit) จะหมดอายุใน 15 วัน และมีแรงงานผิดกฎหมายขาดเอกสารแล้ว 4 ราย
+                    รถลูกค้าขนส่งที่จอดรอลงของบริเวณลานค้าเพื่อขนถ่ายสินค้า จอดคอยเฉลี่ยยาวนาน <strong>22 นาที</strong> (หลุดเกณฑ์เป้าหมาย)
                   </div>
                 }
                 why={
                   <div>
-                    เปรียบเทียบเป้าหมายการจ้างงาน: <strong>ดัชนีแรงงานถูกต้องตามกฎหมายต้องเป็น 100%</strong> การละเลยส่งผลให้มีความเสี่ยงสูงที่จะโดนปรับคดีร้ายแรงและถูกปิดงดกะงานปฏิบัติการของตลาด
+                    เป้าหมายการขนถ่าย: **เวลารอคอยสูงสุดของรถลูกค้าห้ามเกิน 10 นาที** และเวลาลงสินค้าตาม SLA ต้องลื่นไหล เนื่องจากกะปฏิบัติการนี้สัดส่วนแรงงานไม่สมดุลส่งผลให้งานล่าช้าขัด SLA สะสมรวม 19%
                   </div>
                 }
-                decisions={["แจ้ง HR ต่อยื่นวีซ่าด่วน (-5,500 บ./คน)", "ระงับการจัดกะทำงานทันที (กำลังคนหาย 16 ราย)", "ว่าจ้างแรงงานต่างชาติสำรองเสริม (+12,000 บ./กะ)"]}
+                decisions={["จ่ายค่าแรงโอทีจัดกะขนของเสริมด่วน (+3,200 บ./กะ)", "ปรับรอบเวลาจำกัดสิทธิ์รถที่มาจอดลงของ (ค่าดำเนินการ 0 บ.)", "จัดระเบียบคิวปล่อยรถเพื่อระบายช่องเทียบขนถ่าย"]}
                 onDecision={handleMakeDecision}
                 loggedDecision={getDecisionForCase("L01")}
               />
@@ -676,26 +684,26 @@ export default function Executive() {
                 <div className={`workflow-tracker-bar ${workflowStatus["L01"]}`}>
                   <span className="pulse-dot"></span>
                   <span>สถานะสั่งการ: <strong>{
-                    workflowStatus["L01"] === "ordered" ? "🕒 แจ้งข้อมูล HR และระบบกระทรวงแรงงาน..." : "✓ เสร็จสมบูรณ์ (ยื่นเรื่องและคุ้มครองสิทธิ์วีซ่าแรงงานครบถ้วน)"
+                    workflowStatus["L01"] === "ordered" ? "🕒 หัวหน้ากะกำลังเรียกจัดกำลังคนเสริม..." : "✓ เสร็จสมบูรณ์ (เคลียร์เวลารอลงสินค้าของรถลูกค้าต่ำกว่า 10 นาที)"
                   }</strong></span>
                 </div>
               )}
 
               <DecisionCard
                 caseId="L02"
-                aiLabel="Labor Forecast"
-                title="อัตรากำลังแรงงานคัดแยกสินค้าไม่เพียงพอต่อปริมาณงานรอบกะ"
+                aiLabel="Forklift PM & Idle"
+                title="อัตราการใช้งาน Forklift ตกต่ำกว่าเกณฑ์ 80% และขาดการตรวจสอบ PM เช็คสภาพ"
                 what={
                   <div>
-                    กะปฏิบัติการเช้าคาดว่ามีรถขนสินค้าเข้าหนาแน่นสะสม <strong>460 คัน</strong> แต่แรงงานที่มีพร้อมทำงานมีเพียง 185 คน
+                    อัตราการใช้งาน Forklift ตกลงเฉลี่ยเหลือเพียง <strong>50%</strong> และตรวจพบบันทึกขาดการประเมินสภาพ PM Check ระบบชาร์จและไฟเตือนประจำวัน
                   </div>
                 }
                 why={
                   <div>
-                    เปรียบเทียบตามประสิทธิภาพความพร้อม: <strong>ดัชนีเวลาจอดรอถ่ายสินค้าเป้าหมายห้ามเกิน 25 นาที/คัน</strong> แต่ยอดประเมินพบเฉลี่ยแตะ 31 นาที ยอดจราจรล้นคัดแยกเฉลี่ยและ Utilization ของกำลังคนพุ่งแตะ 95% วิกฤต
+                    เป้าหมายฝ่ายแรงงาน: **รถ Forklift ต้องมีอัตราการใช้งานไม่ต่ำกว่า 80%** และต้องได้รับการทำบำรุงรักษาป้องกันเชิงควบคุม (Preventative Maintenance) ตรวจเช็คเครื่องยนต์ 100% เพื่อลดความสูญเสียกะงาน
                   </div>
                 }
-                decisions={["จ้างแรงงานต่างด้าวคัดแยกเสริม (+4,000 บ./กะ)", "เลื่อนกำหนดถ่ายสินค้าโซนผัก (สูญเสียรอบผลิต 15%)", "อนุมัติงบจ่ายค่าล่วงเวลา OT ช่างเสริม (+3,200 บ./กะ)"]}
+                decisions={["สั่งด่วนช่างคลังเข้าซ่อมทำ PM Forklift ทั้งคลัง (-6,000 บ.)", "ปรับลดจำนวนเช่ารถและกระจายกะรถสแตนด์บาย (ค่าปรับ 0 บ.)", "เรียกใช้สัญญาช่างซัพพลายเออร์ดูแลด่วน"]}
                 onDecision={handleMakeDecision}
                 loggedDecision={getDecisionForCase("L02")}
               />
@@ -704,7 +712,7 @@ export default function Executive() {
                 <div className={`workflow-tracker-bar ${workflowStatus["L02"]}`}>
                   <span className="pulse-dot"></span>
                   <span>สถานะสั่งการ: <strong>{
-                    workflowStatus["L02"] === "ordered" ? "🕒 กำลังสลับจัดงบจ้างและเรียกแรงงานนอกกะ..." : "✓ เสร็จสมบูรณ์ (แรงงานเข้าคุมเวลารถถ่ายของลดเหลือ 22 นาทีต่อคัน)"
+                    workflowStatus["L02"] === "ordered" ? "🕒 ช่างไฟฟ้าเข้าตรวจสอบชุดแบตเตอรี่รถตัก..." : "✓ เสร็จสมบูรณ์ (Forklift ดำเนินการ PM เช็คลิสต์ 100% อัตราการรันสูงกว่า 80%)"
                   }</strong></span>
                 </div>
               )}
@@ -777,7 +785,7 @@ export default function Executive() {
           <div style={{ margin: "32px 0 20px 0", borderBottom: "2px solid var(--line)" }} />
 
           {/* ========================================================================= */}
-          {/* Case 6: Conversational Copilot (RAG Chat - filtered context) */}
+          {/* Case 6: Conversational Copilot */}
           {/* ========================================================================= */}
           <div className="card copilot-panel" id="case-6">
             <div className="ai-tag-wrapper">
@@ -787,24 +795,42 @@ export default function Executive() {
             <h3 className="font-display" style={{ margin: "0 0 4px 0", fontSize: "1.2rem" }}>
               💬 ผู้ช่วยวิเคราะห์ปฏิบัติงานเชิงลึก (Executive Copilot)
             </h3>
-            <p style={{ color: "var(--ink-soft)", fontSize: "0.85rem", margin: "0 0 20px 0" }}>
-              พิมพ์ประเมินความสอดคล้อง ดึงประวัติน้ำมันรถขยะ หรือกดหัวข้อจำลองทางเลือกด้านล่างที่วิเคราะห์เฉพาะ **{
-                activeDeptId === "d-clean" ? "ฝ่ายรักษาความสะอาด" : 
-                activeDeptId === "d-security" ? "ฝ่ายความปลอดภัย" : 
-                activeDeptId === "d-labor" ? "ฝ่ายแรงงาน" : "ฝ่ายซ่อมบำรุง"
-              }** ได้ทันที
+            <p style={{ color: "var(--ink-soft)", fontSize: "0.85rem", margin: "0 0 16px 0" }}>
+              คลิกเลือกหัวข้อคำถาม KPI ด้านล่างเพื่อวิเคราะห์ได้ทันที หรือพิมพ์หัวข้ออื่นที่ต้องการสอบถามเพิ่มเติม
             </p>
 
-            {/* Dynamic Suggested Chips based on Active Department */}
+            {/* อัปเกรด: เพิ่ม Dropdown ค้นหาด่วนตามเกณฑ์ KPI สำหรับแชท */}
+            <div className="quick-kpi-select-wrapper" style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--red-dark)", display: "block", marginBottom: 6 }}>
+                🎯 รายการวิเคราะห์ด่วนอ้างอิงตามดัชนี KPI (คลิกเลือกเพื่อถามทันที):
+              </label>
+              <select 
+                className="kpi-quick-dropdown"
+                onChange={(e) => {
+                  if (e.target.value) {
+                    handleSendCopilotQuery(e.target.value);
+                    e.target.value = ""; // รีเซ็ตเพื่อเลือกใหม่ได้อีกรอบ
+                  }
+                }}
+                style={{ width: "100%", padding: "10px", borderRadius: "var(--radius)", border: "1px solid var(--line)", background: "#fff", color: "var(--ink)", fontWeight: 600 }}
+              >
+                <option value="">-- คลิกเลือกหัวข้อคำถามดัชนี KPI --</option>
+                {quickQuestions.map((sug, idx) => (
+                  <option key={idx} value={sug.text}>{sug.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Dynamic Suggested Chips (ยังเก็บแบบปุ่มกดง่ายไว้ด้วยกัน) */}
             <div className="copilot-suggestions">
-              {copilotSuggestions.map((sug, idx) => (
+              {quickQuestions.map((sug, idx) => (
                 <button 
                   key={idx}
                   type="button" 
                   className="suggestion-chip"
                   onClick={() => handleSendCopilotQuery(sug.text)}
                 >
-                  {sug.label}
+                  📍 {sug.label}
                 </button>
               ))}
             </div>
@@ -812,7 +838,7 @@ export default function Executive() {
             {/* Chat History Messages */}
             <div className="copilot-chat-box" id="copilot-chat-box">
               {copilotMessages.length === 0 && (
-                <p className="chat-empty-state">ถามเปรียบเทียบประสิทธิภาพดัชนี KPI หรือการตรวจจับเหตุความปลอดภัย...</p>
+                <p className="chat-empty-state">เลือกรายการคำถามดัชนี KPI ด้านบน หรือทดลองพิมพ์เพื่อสนทนา...</p>
               )}
               {copilotMessages.map((msg, idx) => (
                 <div key={idx} className={`chat-bubble ${msg.role}`}>
@@ -862,10 +888,10 @@ export default function Executive() {
             <div className="copilot-chat-input-bar">
               <input
                 type="text"
-                placeholder={`ถามความล่าช้า, ตารางตรวจไมล์รถ หรือดัชนีชี้วัดของ${
-                  activeDeptId === "d-clean" ? "บ่อบำบัดน้ำเสีย/การใช้น้ำมัน" : 
-                  activeDeptId === "d-security" ? "คิวรถติดขัด/รถจอดแช่" : 
-                  activeDeptId === "d-labor" ? "อัตราโอที/วีซ่าต่างด้าว" : "ชั่วโมง Breakdown/งานซ่อม SLA"
+                placeholder={`พิมพ์ถามรายละเอียดของ${
+                  activeDeptId === "d-clean" ? "บ่อบำบัดน้ำเสีย/ข้อร้องเรียนจุดสกปรก" : 
+                  activeDeptId === "d-security" ? "รถติดคอขวด/จัดรถอาคารผัก/ลักลอบจอด" : 
+                  activeDeptId === "d-labor" ? "เวลารอคิวลูกค้า/เวลาลงของ SLA/PM Forklift" : "ชั่วโมง Breakdown/งานซ่อม SLA"
                 }...`}
                 value={copilotQuery}
                 onChange={(e) => setCopilotQuery(e.target.value)}
@@ -953,7 +979,7 @@ export default function Executive() {
 
               <div className="memo-section">
                 <h4>1. สรุปสถานะเป้าหมาย KPI สัปดาห์นี้</h4>
-                <p>ขณะนี้ระบบบันทึกความล้มเหลวหลุดเกณฑ์เป้าหมายใน 4 ส่วนหลัก ได้แก่ ขยะล้นลานผักสะสม Zone C (92%), คิวรถติดขวางสะสมหน้าประตูทางเข้า Gate 3 (15 นาที), แรงงานลงสินค้าจอดแช่ช้า (31 นาที), และเครื่องปั่นไฟสำรองหลักชำรุดเสียหายขัดข้อง Breakdown สะสม 120 นาที</p>
+                <p>ขณะนี้ระบบบันทึกความล้มเหลวหลุดเกณฑ์เป้าหมายในส่วนหลัก ได้แก่ ขยะล้นลานผักสะสม Zone C (92%), คิวรถติดคอขวดสะสมหน้าประตูทางเข้า Gate 3 เกิน 5 นาที, รถลูกค้ารอลงสินค้านานเกิน 10 นาที, และ Forklift Utilization ตกต่ำกว่า 80%</p>
               </div>
 
               <div className="memo-section">
@@ -1004,6 +1030,16 @@ export default function Executive() {
       )}
 
       <style jsx global>{`
+        /* Quick KPI selector styles */
+        .kpi-quick-dropdown {
+          border: 1.5px solid var(--red-dark);
+          transition: all 0.2s ease;
+        }
+        .kpi-quick-dropdown:focus {
+          outline: none;
+          box-shadow: 0 0 0 3px rgba(125,10,14,0.15);
+        }
+
         /* Dept Switcher Tabs styling */
         .dept-tabs-container {
           display: flex;
