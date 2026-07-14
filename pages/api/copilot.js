@@ -1,7 +1,7 @@
 // pages/api/copilot.js
 //
 // API Serverless Function สำหรับคุยโต้ตอบกับผู้บริหาร (Conversational Copilot - RAG)
-// ดึงข้อมูล Context ด้านการปฏิบัติงานมาใส่ใน Prompt เพื่อส่งให้ Claude ตอบกลับเป็นข้อมูลที่แม่นยำ
+// รองรับทั้ง Google Gemini API (แนะนำ - มีรุ่นฟรี), Anthropic Claude API หรือใช้ Mock สแตนด์บาย
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -13,10 +13,11 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "กรุณาระบุคำถาม" });
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const geminiKey = process.env.GEMINI_API_KEY;
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
 
-  // --- RULE-BASED FALLBACK (สำหรับกรณีไม่ได้ตั้ง API Key เพื่อให้เดโมไม่ล่มและตอบตรงคำถาม) ---
-  if (!apiKey) {
+  // --- RULE-BASED FALLBACK (หากไม่พบ API Key ใดๆ เลย) ---
+  if (!geminiKey && !anthropicKey) {
     const q = String(query).toLowerCase();
     let answer = "";
     let hasDecision = false;
@@ -36,7 +37,7 @@ export default async function handler(req, res) {
                "- **ประวัติบันทึก:** ตรวจเช็คสภาพเบรก 'ไม่ผ่าน' ติดต่อกัน 2 วัน (12 และ 13 ก.ค.) และยังไม่มีการลงบันทึกตรวจซ้ำหรือซ่อมแซมมาเป็นเวลา 4 วันติดต่อกันแล้ว\n\n" +
                "ขอแนะนำให้สั่งซ่อมทันทีเพื่อป้องกันอุบัติเหตุระหว่างออกตรวจปฏิบัติงาน";
       hasDecision = true;
-      suggestedDecisions = ["ส่งรถซ่อมแซมด่วน", "ระงับการวิ่งของรถคันนี้", "มอบหมายหัวหน้าฝ่ายความปลอดภัย"];
+      suggestedDecisions = ["ส่งรถซ่อมแซมด่วน", "ระงับการใช้งานชั่วคราว", "มอบหมายหัวหน้าฝ่ายความปลอดภัย"];
     } else if (q.includes("โซน c") || q.includes("ความเงียบ") || q.includes("หาย") || q.includes("เงียบ")) {
       answer = "วิเคราะห์ความถี่รายงาน (Anomaly Detection):\n\n" +
                "- **พิกัด:** ฝ่ายรักษาความสะอาด โซน C (อาหารทะเล)\n" +
@@ -66,7 +67,6 @@ export default async function handler(req, res) {
     return res.status(200).json({ answer, hasDecision, suggestedDecisions });
   }
 
-  // --- รันระบบต่อ AI กับ API ของ ANTHROPIC CLAUDE จริง ---
   const systemPrompt = `คุณคือผู้ช่วยระดับสูงสำหรับผู้บริหารตลาดสี่มุมเมือง (ชื่อตำแหน่ง Executive Copilot)
 หน้าที่ของคุณคือตอบคำถามของผู้บริหารเกี่ยวกับการปฏิบัติงาน โครงสร้างงาน ข้อผิดพลาด ความผิดปกติ และข้อมูลรายงานที่ดึงมาจากระบบ (Context)
 ให้ตอบเป็นภาษาไทยที่สุภาพ กระชับ อ่านง่าย และใช้ประโยชน์ได้จริง
@@ -85,41 +85,65 @@ ${JSON.stringify(context)}
   "suggestedDecisions": ["ตัวเลือกที่ 1", "ตัวเลือกที่ 2"] 
 }`;
 
-  try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-5",
-        max_tokens: 1000,
-        system: systemPrompt,
-        messages: [{ role: "user", content: `คำถามของผู้บริหาร: ${query}` }],
-      }),
-    });
-
-    if (!response.ok) {
-      const errText = await response.text();
-      return res.status(502).json({ error: `Anthropic API error: ${errText}` });
-    }
-
-    const data = await response.json();
-    const textBlock = (data.content || []).find((b) => b.type === "text");
-    const raw = textBlock ? textBlock.text : "{}";
-
-    let parsed;
+  // --- กรณีเรียกใช้งาน GOOGLE GEMINI API (แนะนำ) ---
+  if (geminiKey) {
     try {
-      const cleaned = raw.replace(/```json|```/g, "").trim();
-      parsed = JSON.parse(cleaned);
-    } catch {
-      parsed = { answer: raw, hasDecision: false, suggestedDecisions: [] };
-    }
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{
+              parts: [{ text: `${systemPrompt}\n\nคำถามจากผู้บริหาร:\n${query}` }]
+            }],
+            generationConfig: {
+              responseMimeType: "application/json"
+            }
+          })
+        }
+      );
 
-    return res.status(200).json(parsed);
-  } catch (err) {
-    return res.status(500).json({ error: `เรียก Copilot AI ไม่สำเร็จ: ${err.message}` });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+
+      const data = await response.json();
+      const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+      return res.status(200).json(JSON.parse(rawText.trim()));
+    } catch (err) {
+      return res.status(500).json({ error: `เรียก Gemini AI ไม่สำเร็จ: ${err.message}` });
+    }
+  }
+
+  // --- กรณีเรียกใช้งาน ANTHROPIC CLAUDE API ---
+  if (anthropicKey) {
+    try {
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": anthropicKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model: "claude-3-5-sonnet-20241022",
+          max_tokens: 1000,
+          system: systemPrompt,
+          messages: [{ role: "user", content: `คำถามของผู้บริหาร: ${query}` }],
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+
+      const data = await response.json();
+      const rawText = data.content?.[0]?.text || "{}";
+      const parsed = JSON.parse(rawText.replace(/```json|```/g, "").trim());
+      return res.status(200).json(parsed);
+    } catch (err) {
+      return res.status(500).json({ error: `เรียก Claude AI ไม่สำเร็จ: ${err.message}` });
+    }
   }
 }
