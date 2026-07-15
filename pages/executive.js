@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import Layout from "../components/Layout";
 import DecisionCard from "../components/DecisionCard";
-import { getReports, computeStats, getExecutiveData, getExecutiveDecisions, logExecutiveDecision, clearExecutiveDecisions } from "../lib/storage";
+import { getReports, computeStats, getExecutiveData, getExecutiveDecisions, logExecutiveDecision, clearExecutiveDecisions, resolveIncident, resetToSeed } from "../lib/storage";
 import { DEPARTMENTS } from "../lib/constants";
 
 export default function Executive() {
@@ -62,30 +62,34 @@ export default function Executive() {
   }
 
   // กดเลือกคำตอบตัดสินใจบนการ์ด
-  function handleMakeDecision(caseId, decisionText) {
+  // จัดการแก้ไขเคสสดด้วยการตัดสินใจของผู้บริหาร (Base on data input)
+  function handleResolveIncident(submissionId, caseId, decisionText) {
     const record = logExecutiveDecision(caseId, decisionText);
     setLoggedDecisions(prev => [...prev, record]);
     
     // ตั้งค่าสถานะเวิร์กโฟลว์ว่า "สั่งการแล้ว"
     setWorkflowStatus(prev => ({
       ...prev,
-      [caseId]: "ordered"
+      [submissionId]: "ordered"
     }));
 
-    // จำลองการอัปเดตสถานะงานหลังจากปฏิบัติการตอบกลับ (4 วินาที)
+    // หลังจากนั้น 2 วินาที ปรับปรุงข้อมูลจริงในฐานข้อมูลและคำนวณ KPI ใหม่สด!
     setTimeout(() => {
+      resolveIncident(submissionId, decisionText);
+      loadAllData(); // รีโหลดสถิติและแบบฟอร์มเพื่ออัปเดตเปอร์เซ็นต์ KPI และเอาการ์ดออก
       setWorkflowStatus(prev => ({
         ...prev,
-        [caseId]: "completed"
+        [submissionId]: "completed"
       }));
-    }, 4000);
+    }, 2000);
   }
 
-  // ล้างประวัติการตัดสินใจเพื่อเริ่มรันใหม่
+  // ล้างประวัติการตัดสินใจและรีเซ็ตฐานข้อมูลทั้งหมด
   function handleClearDecisions() {
-    if (confirm("ต้องการเคลียร์ประวัติการตัดสินใจทั้งหมดเพื่อเริ่มต้นเดโมใหม่ใช่หรือไม่?")) {
+    if (confirm("ต้องการเคลียร์ประวัติและรีเซ็ตข้อมูลรายงานทั้งหมดกลับไปเป็นค่าเริ่มต้นใช่หรือไม่?")) {
+      resetToSeed();
       clearExecutiveDecisions();
-      setLoggedDecisions([]);
+      loadAllData();
       setWorkflowStatus({});
     }
   }
@@ -312,6 +316,15 @@ export default function Executive() {
     }
     return [];
   }, [activeDeptId, stats]);
+
+  // ดึงรายการประเด็นวิกฤต (Incidents) ของฝ่ายนี้ที่ยังไม่ได้แก้ไขแบบไดนามิกจากฐานข้อมูล
+  const activeIncidents = useMemo(() => {
+    return reports.filter(r => 
+      r.departmentId === activeDeptId && 
+      (r.derivedStatus === "ต้องติดตาม" || r.derivedStatus === "เร่งด่วน") &&
+      !r.resolved
+    );
+  }, [reports, activeDeptId]);
 
   // ลิสต์คำถามด่วนอ้างอิงตามตัวชี้วัดความสอดคล้อง (Quick KPI Questions)
   const quickQuestions = useMemo(() => {
@@ -699,417 +712,346 @@ export default function Executive() {
           <div style={{ margin: "24px 0 16px 0", borderBottom: "2px solid var(--line)" }} />
 
           {/* ========================================================================= */}
-          {/* P. ฝ่ายจัดพื้นที่ & สารพิษ (Space Cases) */}
+          {/* รายการเหตุการณ์วิกฤตที่ต้องอนุมัติการตัดสินใจรายฝ่ายงาน (Dynamic Case Cards) */}
           {/* ========================================================================= */}
-          {activeDeptId === "d-space" && (
-            <div className="dept-cases-list">
-              <DecisionCard
-                caseId="P01"
-                aiLabel="Toxin & Rent Occupancy"
-                title="สัดส่วนตรวจสารเคมีแล้วปลอดภัยหลุดเกณฑ์เป้าหมาย 100% (ปนเปื้อน 5%)"
-                what={
-                  <div>
-                    สุ่มตรวจพบสารเคมีตกค้างปนเปื้อนระดับเฝ้าระวังสีส้มในแผงจำหน่ายผักใบสะสมรวม <strong>5%</strong> ของจำนวนรายการสุ่มคัดกรอง 65 ตัวอย่าง
-                  </div>
-                }
-                why={
-                  <div>
-                    ดัชนีเฝ้าระวังสารพิษ: <strong>ต้องปลอดสารเคมี 100%</strong> เพื่อรักษาความเชื่อมั่นผู้ซื้อตลาด ขณะนี้พบบริเวณแผงผักใบและคะน้าจีน
-                  </div>
-                }
-                decisions={["ตักเตือนและสั่งงดจำหน่ายแผงที่พบสารเคมี 3 วัน", "เพิ่มความถี่ตรวจคัดกรองสารพิษเป็นรายวัน", "ระงับการต่อสัญญาเช่าแผงค้านั้นในรอบถัดไป"]}
-                onDecision={handleMakeDecision}
-                loggedDecision={getDecisionForCase("P01")}
-              />
+          <div className="dept-cases-list">
+            {activeIncidents.length === 0 ? (
+              <div className="card" style={{ padding: "40px", textAlign: "center", background: "rgba(46, 204, 113, 0.05)", border: "1px dashed var(--green)", borderRadius: "12px" }}>
+                <span style={{ fontSize: "3rem", display: "block", marginBottom: "16px" }}>🟢</span>
+                <h3 style={{ margin: "0 0 8px 0", fontFamily: "var(--font-display)", color: "var(--green)" }}>การทำงานของฝ่ายเป็นปกติเรียบร้อย</h3>
+                <p style={{ margin: 0, color: "var(--ink-soft)", fontSize: "0.95rem" }}>
+                  ไม่มีเคสข้อร้องเรียนหรือดัชนีชี้วัดหลุดเป้าหมายที่ต้องการอนุมัติเร่งด่วนในขณะนี้
+                </p>
+              </div>
+            ) : (
+              activeIncidents.map((inc) => {
+                let aiLabel = "Operational Violation";
+                let title = "พบเกณฑ์ดัชนีหลุดค่าเป้าหมาย";
+                let what = <div>เกิดข้อผิดพลาดในการดึงข้อมูล</div>;
+                let why = <div>ตรวจสอบตามนโยบายระดับคุณภาพของตลาดสี่มุมเมือง</div>;
+                let decisions = ["สั่งการตรวจสอบด่วน", "แจ้งเตือนแผงค้า"];
+                let caseId = inc.id.slice(-4).toUpperCase();
 
-              {workflowStatus["P01"] && (
-                <div className={`workflow-tracker-bar ${workflowStatus["P01"]}`}>
-                  <span className="pulse-dot"></span>
-                  <span>สถานะสั่งการ: <strong>{
-                    workflowStatus["P01"] === "ordered" ? "🕒 กำลังออกหนังสือเตือนแผงค้าและระงับสิทธิ์จำหน่าย..." : "✓ เสร็จสมบูรณ์ (แผงค้ายินยอมงดจำหน่ายและคัดแยกสินค้าชุดที่ตรวจพบแล้ว)"
-                  }</strong></span>
-                </div>
-              )}
+                const findAns = (qId) => {
+                  const ans = inc.answers?.find(a => a.questionId === qId);
+                  return ans ? ans.value : null;
+                };
 
-              <DecisionCard
-                caseId="P02"
-                aiLabel="Traffic Allocation"
-                title="เวลาจัดจอดรถในอาคารรถผัก 3 รอบหลักล่าช้ากว่าเกณฑ์กำหนด"
-                what={
-                  <div>
-                    เวลาเฉลี่ยการบริหารจัดจอดรถผักเข้าเทียบชานชาลาวัดได้ <strong>33 นาทีต่อรอบ</strong> (เป้าหมายห้ามเกิน 30 นาที)
-                  </div>
+                if (inc.formTemplateId === "tmpl-space-occupancy") {
+                  const total = Number(findAns("totalStalls") || 100);
+                  const occupied = Number(findAns("occupiedStalls") || 80);
+                  const rate = total > 0 ? ((occupied / total) * 100).toFixed(1) : "0.0";
+                  aiLabel = "Space Occupancy";
+                  title = `อัตราการเช่าแผงค้ารวม โซน ${inc.zone || "ทั่วไป"}`;
+                  what = (
+                    <div>
+                      ตรวจเช็คข้อมูลสัญญาเช่ามีแผงปล่อยเช่าได้จริงเพียง <strong>{occupied} แผง</strong> จากทั้งหมด <strong>{total} แผง</strong> คิดเป็นอัตราเช่าพื้นที่การค้า <strong>{rate}%</strong>
+                    </div>
+                  );
+                  why = (
+                    <div>
+                      ดัชนีควบคุมพื้นที่: <strong>ต้องมีอัตราครองเช่าแผงค้า &gt;= 90%</strong> เพื่อรักษาความคล่องตัวของตลาดค้าส่ง
+                    </div>
+                  );
+                  decisions = [
+                    "สั่งลดราคาค่าเช่าแผง 20% สำหรับแผงว่างรายใหม่",
+                    "สั่งจัดบูธกิจกรรมส่งเสริมการขายเพื่อหาผู้ค้ารายย่อย",
+                    "จำกัดพื้นที่แบ่งโซนนิ่งผักใหม่เพิ่มช่องว่างสำหรับรถขนถ่าย"
+                  ];
+                } else if (inc.formTemplateId === "tmpl-space-toxin") {
+                  const tested = Number(findAns("testedSamplesCount") || 60);
+                  const unsafe = Number(findAns("unsafeSamplesCount") || 3);
+                  const rate = tested > 0 ? (((tested - unsafe) / tested) * 100).toFixed(1) : "0.0";
+                  aiLabel = "Chemical & Toxin";
+                  title = `ตรวจสารเคมีตกค้างปนเปื้อนในพืชผัก ณ โซน ${inc.zone || "ผักใบ"}`;
+                  what = (
+                    <div>
+                      สุ่มตรวจพบยาฆ่าแมลงหรือสารเคมีสะสมรวม <strong>{unsafe} ตัวอย่าง</strong> จากทั้งหมดที่สุ่ม <strong>{tested} ตัวอย่าง</strong> อัตราปลอดภัยหลุดเป้าหมายเหลือ <strong>{rate}%</strong>
+                    </div>
+                  );
+                  why = (
+                    <div>
+                      เกณฑ์เฝ้าระวังสารพิษ: <strong>ผลผลิตต้องปลอดภัยปลอดสารตกค้าง 100%</strong> เพื่อพยุงความน่าเชื่อถือตลาดระดับสากล
+                    </div>
+                  );
+                  decisions = [
+                    "สั่งแผงค้าที่ตรวจพบสารเคมีงดจำหน่ายเป็นเวลา 3 วัน เพื่อคัดสินค้าทิ้ง",
+                    "ออกจดหมายแจ้งเตือนสถานเบาและสั่งให้สุ่มตรวจซ้ำในวันถัดไป",
+                    "ยึดและทำลายสินค้าล๊อตนี้ทั้งหมดพร้อมปรับเงินผู้ค้า 5,000 บาท"
+                  ];
+                } else if (inc.formTemplateId === "tmpl-clean-bins") {
+                  const maxCap = Number(findAns("maxCapacityKg") || 1000);
+                  const weight = Number(findAns("currentWeightKg") || 900);
+                  const rate = maxCap > 0 ? ((weight / maxCap) * 100).toFixed(1) : "0.0";
+                  aiLabel = "Waste Management";
+                  title = `ระดับปริมาณขยะอินทรีย์ล้นถังขยะสะสมวิกฤต โซน ${inc.zone || "ทั่วไป"}`;
+                  what = (
+                    <div>
+                      ปริมาณขยะอินทรีย์เปียกชั่งน้ำหนักสะสมสูงถึง <strong>{weight} กก.</strong> จากความจุสูงสุด <strong>{maxCap} กก.</strong> คิดเป็น <strong>{rate}%</strong>
+                    </div>
+                  );
+                  why = (
+                    <div>
+                      การควบคุมสิ่งแวดล้อม: <strong>ปริมาณขยะสะสมห้ามเกิน 80%</strong> เพื่อไม่ให้เกิดกลิ่นเน่าเสียสะสมและปัญหาฝูงแมลงวันรบกวนผู้ซื้อขาย
+                    </div>
+                  );
+                  decisions = [
+                    "สั่งรถตักขยะเบี่ยงรอบจากโซนอื่นเข้ามาเคลียร์ถังล้นลานผักด่วน",
+                    "จ้างพ่นจุลินทรีย์ชีวภาพและน้ำหมักช่วยย่อยและดับกลิ่นคาวสะสม",
+                    "เพิ่มรอบรถขยะเข้าตักสี่มุมเมืองเป็นวันละ 3 รอบด่วน"
+                  ];
+                } else if (inc.formTemplateId === "tmpl-clean-water") {
+                  const cod = Number(findAns("codLevel") || 160);
+                  aiLabel = "Water Treatment";
+                  title = `ดัชนีคุณภาพน้ำเสีย COD เกินข้อกำหนดของกรมควบคุมมลพิษ`;
+                  what = (
+                    <div>
+                      ผลวิเคราะห์ตัวอย่างน้ำทิ้งจากบ่อบำบัดน้ำเสียหลัก มีค่าความสกปรก COD สูงถึง <strong>{cod} mg/L</strong> (หลุดเกณฑ์เป้าหมายมาตรฐาน)
+                    </div>
+                  );
+                  why = (
+                    <div>
+                      มาตรฐานคุณภาพสิ่งแวดล้อมตลาด: <strong>ค่าน้ำเสียต้องต่ำกว่า 120 mg/L</strong> ก่อนระบายสู่ระบบสาธารณะเพื่อเลี่ยงค่าปรับทางกฎหมาย
+                    </div>
+                  );
+                  decisions = [
+                    "อนุมัติเปิดระบบปั๊มกรองน้ำระบายความร้อนบ่อบำบัดสำรองสลับรันใช้งาน",
+                    "สั่งเติมสารสกัดธรรมชาติและจุลินทรีย์เร่งกระตุ้นตกตะกอนด่วน",
+                    "ส่งทีมช่างเทคนิคมุดอุโมงค์ล้างไส้กรองและคราบไขมันตกค้างในระบบ"
+                  ];
+                } else if (inc.formTemplateId === "tmpl-clean-complaint") {
+                  const mins = Number(findAns("minutesToClear") || 45);
+                  aiLabel = "Cleanliness SLA";
+                  title = `งานจัดระเบียบและฉีดล้างสิ่งปฏิกูลตามแผงค้าล่าช้าเกินเวลา SLA`;
+                  what = (
+                    <div>
+                      ได้รับแจ้งข้อร้องเรียนคราบน้ำสกปรกสะสม แต่ช่างใช้เวลาดำเนินการช้าจนสะสมแตะ <strong>{mins} นาที</strong>
+                    </div>
+                  );
+                  why = (
+                    <div>
+                      การปิดงานตามข้อร้องเรียน: <strong>ต้องทำความสะอาดเสร็จสิ้นใน 30 นาที</strong> (SLA ต่ำสุดที่ 95% แต่อัตรางานทำสำเร็จตกลงเหลือ 88%)
+                    </div>
+                  );
+                  decisions = [
+                    "สั่งทีมเคลื่อนที่เร็วเข้าฉีดล้างลานแผงค้านั้น in 10 นาทีนี้ด่วน",
+                    "ตักเตือนและหักเงินรางวัลผู้ให้บริการซัพพลายเออร์ที่ปิดงานช้าเกิน SLA",
+                    "เสนอปรับเวลา SLA ขอบเขตความสะอาดเป็น 40 นาทีชั่วคราวในช่วงหน้าฝน"
+                  ];
+                } else if (inc.formTemplateId === "tmpl-sec-traffic") {
+                  const mins = Number(findAns("trafficWaitMinutes") || 15);
+                  aiLabel = "Traffic Gate Control";
+                  title = `จราจรรถคอขวดสะสมบริเวณหน้าด่านทางเข้าหลัก โซน ${inc.zone || "ทั่วไป"}`;
+                  what = (
+                    <div>
+                      รถขนส่งและผู้ซื้อติดขัดข้ามสะพานคอขวดด่าน Gate 3 ใช้เวลารอคอยเฉลี่ยสะสม <strong>{mins} นาที</strong>
+                    </div>
+                  );
+                  why = (
+                    <div>
+                      ข้อบังคับการไหลจราจร: <strong>รถติดคอขวดหน้าประตูห้ามเกิน 5 นาที</strong> เพื่อระบายพืชผลการเกษตรให้สดใหม่รวดเร็ว
+                    </div>
+                  );
+                  decisions = [
+                    "สั่งเปิดช่องประตูสำรองทางเข้าเพิ่มและใช้ระบบจ่ายบัตรกึ่งอัตโนมัติด่วน",
+                    "ส่ง รปภ. โบกห้ามรถบรรทุกขนาดใหญ่จอดแช่เลนกระจายสินค้าหน้าด่านหลัก",
+                    "จำกัดสิทธิ์เวลารถเทียบของชั่วคราวในช่วงกะเวลาวิกฤต"
+                  ];
+                } else if (inc.formTemplateId === "tmpl-sec-routing") {
+                  const mins = Number(findAns("truckRoutingMinutes") || 42);
+                  aiLabel = "Truck Routing";
+                  title = `ระยะเวลาวิ่งจัดจอดรถ in อาคารรถผัก 3 รอบหลักหลุดเวลาเป้าหมาย`;
+                  what = (
+                    <div>
+                      เวลาเฉลี่ยการนำรถผักเข้าชานชาลาและสลับช่องจอดวิ่งล่าช้า ใช้เวลา <strong>{mins} นาทีต่อรอบ</strong>
+                    </div>
+                  );
+                  why = (
+                    <div>
+                      ข้อกำหนดระเบียบเดินรถ: <strong>เวลาจัดจอดเทียบตู้ต้องต่ำกว่า 40 นาที</strong> เพื่อคิวรถคอกขนส่งไม่สับสนเบียดเสียดกีดขวาง
+                    </div>
+                  );
+                  decisions = [
+                    "สั่งระดมกำลัง รปภ. เสริมตรงโค้งทางเลี้ยวจัดคิวรถผักสลับเข้าเทียบด่วน",
+                    "จัดสรรรอบเวลาเข้าเทียบชานชาลาแยกตามประเภทและแผงเป้าหมาย",
+                    "เปิดช่องทางเดินรถเสริมรอบนอกเพื่อแบ่งเบาปัญหารถคอขวด"
+                  ];
+                } else if (inc.formTemplateId === "tmpl-sec-parking") {
+                  const plate = findAns("licensePlate") || "70-4567";
+                  aiLabel = "Parking Violation";
+                  title = `พบรถยนต์ส่วนบุคคลแอบลักลอบจอดแช่ในพื้นที่ลานจอดจำหน่ายสินค้า โซน ${inc.zone || "ทั่วไป"}`;
+                  what = (
+                    <div>
+                      ตรวจพบรถยนต์แอบลักลอบจอดทิ้งไม่ซื้อจริงสะสมนานเกิน 3 ชม. หมายเลขทะเบียนรถ <strong>{plate}</strong>
+                    </div>
+                  );
+                  why = (
+                    <div>
+                      มาตรการจอดรถตลาด: <strong>ต้องจัดการพวกลักลอบจอดสะสมและคืนความสะดวกผู้ซื้อจริง</strong> (สัดส่วนปิดงานสำเร็จลดเหลือ 82%)
+                    </div>
+                  );
+                  decisions = [
+                    `สั่ง รปภ. ล็อกล้อรถทะเบียน ${plate} ทันทีและเปรียบเทียบปรับ 500 บาท`,
+                    `แปะใบสั่งเตือนระเบียบจอดหน้ารถทะเบียน ${plate} และให้บันทึกประวัติ`,
+                    `ปล่อยผ่านเป็นกรณีพิเศษเนื่องจากเป็นผู้ค้าส่งส่งมอบสินค้าด่วน`
+                  ];
+                } else if (inc.formTemplateId === "tmpl-lab-unload") {
+                  const mins = Number(findAns("customerWaitMinutes") || 22);
+                  aiLabel = "Labor Load Service";
+                  title = `ลูกค้ารอคอยแรงงานโหลดลงของนานสุดเกินกำหนดเป้าหมาย`;
+                  what = (
+                    <div>
+                      ผู้ซื้อขนส่งสินค้าแจ้งร้องเรียนเรื่องทีมแรงงานช่วยลงของจัดส่งคิวยาว รอนานถึง <strong>{mins} นาที</strong>
+                    </div>
+                  );
+                  why = (
+                    <div>
+                      ข้อกำหนดมาตรฐานบริการ: <strong>ลูกค้ารอคิวลงของต้องไม่เกิน 10 นาที (SLA &gt; 90%)</strong> เพื่อไม่ให้แผงค้าและรถค้างสะสม
+                    </div>
+                  );
+                  decisions = [
+                    "สั่งจ่ายเบี้ยแรงเสริมกะเช้าให้พนักงานจัดพอร์ทลงของเพิ่มคู่อำนวยความสะดวก",
+                    "ปรับเปลี่ยนแผนจำกัดรอบเวลาจอดจองลงของเทียบด่วนห้ามเกิน 30 นาทีต่อคัน",
+                    "โยกย้ายจุดคัดถ่ายสินค้าของเบาแยกออกจากลานสินค้าหนักคลังหลัก"
+                  ];
+                } else if (inc.formTemplateId === "tmpl-maint-pm") {
+                  const id = findAns("machineId") || "GEN-01";
+                  const mins = Number(findAns("breakdownMinutes") || 120);
+                  aiLabel = "Utilities Breakdown";
+                  title = `เครื่องจ่ายกระแสไฟฟ้าหลักเกิดระบบขัดข้องสะสม (Breakdown)`;
+                  what = (
+                    <div>
+                      รายงานตรวจเช็คพบสัญญาณขัดข้องทางไฟฟ้าจากอุปกรณ์ <strong>{id}</strong> อุณหภูมิพุ่งสูงสะสมเป็นเวลา <strong>{mins} นาที</strong>
+                    </div>
+                  );
+                  why = (
+                    <div>
+                      ข้อรับประกันสาธารณูปโภค: <strong>เวลาชำรุดเสียหายสะสมของเครื่องปั่นไฟต้องเป็น 0 นาที</strong> เพื่อคุมไม่ให้ระบบตลาดดับมืด
+                    </div>
+                  );
+                  decisions = [
+                    `อนุมัติทีมวิศวกรซ่อมใหญ่เปลี่ยนพัดลมความร้อน GEN-01 เป็นกรณีฉุกเฉิน`,
+                    `สลับวงจรจ่ายกระแสไฟฟ้าไปยังเครื่องจักร Gen-02 สำรองจ่ายไฟโซนสอง`,
+                    `ปรับลดกำลังผลิตลงครึ่งหนึ่งชั่วคราวเพื่อรักษาระดับอุณหภูมิห้องจ่ายไฟ`
+                  ];
+                } else if (inc.formTemplateId === "tmpl-maint-sla") {
+                  const id = findAns("requestId") || "RQ-1045";
+                  const mins = Number(findAns("minutesToComplete") || 90);
+                  aiLabel = "Maintenance SLA";
+                  title = `ใบงานแจ้งซ่อมระบบประปาไฟฟ้าภายในแผงค้าล่าช้าเกินเวลา SLA`;
+                  what = (
+                    <div>
+                      คำร้องใบแจ้งซ่อมรหัส <strong>{id}</strong> ซ่อมแก้ไขไฟฟ้าชำรุดใช้เวลารวมสูงถึง <strong>{mins} นาที</strong>
+                    </div>
+                  );
+                  why = (
+                    <div>
+                      กรอบเวลาปิดงานบำรุงรักษา: <strong>ต้องแก้ไขเรียบร้อยใน 60 นาที (SLA Met &gt; 95%)</strong> เพื่อป้องกันการลุกไหม้อัคคีภัย
+                    </div>
+                  );
+                  decisions = [
+                    "สั่งอนุมัติจัดงบสต็อกอุปกรณ์ตัดจ่ายกระแสไฟสำรองจัดเก็บไว้คลังด่วน",
+                    "สั่งการปรับเวรหมุนช่างเทคนิคประจำการกะกลางคืนเพิ่มเติม 2 คน",
+                    "อนุมัติขยายระยะเวลา SLA ระบบสายเคเบิลใต้ดินชั่วคราวเป็น 180 นาที"
+                  ];
+                } else if (inc.formTemplateId === "tmpl-specsec-emergency") {
+                  const count = Number(findAns("emergencyIncidents") || 2);
+                  aiLabel = "Specsec Emergency";
+                  title = `มีเหตุทะเลาะวิวาทหรือเหตุลักทรัพย์เกิดสะสมในรอบกะของฝ่าย รปภ.`;
+                  what = (
+                    <div>
+                      รายงานความไม่สงบพบอุบัติเหตุชนแล้วหนี หรือคดีทะเลาะวิวาทแรงงาน สะสมรวม <strong>{count} ครั้ง</strong> ในสัปดาห์นี้
+                    </div>
+                  );
+                  why = (
+                    <div>
+                      มาตรการความสงบในพื้นที่: <strong>อุบัติเหตุความรุนแรงและลักขโมยต้องเป็น 0 ครั้ง</strong> เพื่อมาตรฐานความปลอดภัย
+                    </div>
+                  );
+                  decisions = [
+                    "สั่ง รปภ. ตั้งบูธจุดตรวจสกัดพิเศษลานจอดหลักตรวจคนเข้าออก 24 ชม.",
+                    "ออกใบสั่งปรับผู้ค้าหรือแรงงานคู่กรณีที่ก่อเหตุ 5,000 บาท และส่งดำเนินคดี",
+                    "ติดตั้งระบบไฟส่องสว่างเสริมบริเวณหัวโค้งลานจอดและแผงอับมุมด่วน"
+                  ];
+                } else if (inc.formTemplateId === "tmpl-specsec-drugs") {
+                  const positive = Number(findAns("positiveDrugCount") || 2);
+                  const total = Number(findAns("totalTested") || 50);
+                  aiLabel = "Drug Control";
+                  title = `ผลการสุ่มตรวจวินัยปัสสาวะแรงงานต่างด้าวพบเป็นผลบวก (ฉี่สีม่วง)`;
+                  what = (
+                    <div>
+                      สุ่มตรวจสารเสพติดแรงงานขนถ่ายสะสมรวม <strong>{total} ราย</strong> พบปัสสาวะมีสีม่วงสะสมจำนวน <strong>{positive} ราย</strong>
+                    </div>
+                  );
+                  why = (
+                    <div>
+                      ระเบียบความมั่นคงตลาด: <strong>ตรวจพบสารเสพติดต้องเท่ากับ 0 (Zero Tolerance)</strong> เพื่อพยุงมาตรฐานการควบคุมแรงงานต่างชาติ
+                    </div>
+                  );
+                  decisions = [
+                    "สั่งยกเลิกเสื้อสิทธิ์สีม่วงใบผ่านตลาดและส่งตัวดำเนินคดีตำรวจทันที",
+                    "สั่งเตือนเป็นจดหมายและภาคทัณฑ์แผงค้านายจ้างที่รับแรงงานโดยไม่เช็คประวัติ",
+                    "สั่งปูพรมระดมทีม รปภ. สุ่มกวาดตรวจปัสสาวะแรงงานทั้งคลังในสัปดาห์ถัดไป"
+                  ];
+                } else if (inc.formTemplateId === "tmpl-cold-power") {
+                  const kwh = Number(findAns("powerKwh") || 1.45);
+                  aiLabel = "Coldroom Energy";
+                  title = `ห้องเย็นจัดเก็บแช่สินค้าสิ้นเปลืองพลังงานไฟฟ้าเกินค่าควบคุมปกติ`;
+                  what = (
+                    <div>
+                      วิเคราะห์อุณหภูมิห้องแช่แข็งหลักทำงานหนัก อัตราใช้พลังงานไฟฟ้าพุ่ง <strong>{kwh} หน่วย/ตร.ม./วัน</strong>
+                    </div>
+                  );
+                  why = (
+                    <div>
+                      เกณฑ์การบริโภคพลังงาน: <strong>อัตราการกินกระแสไฟห้ามเกิน 1.2 หน่วย/ตร.ม./วัน</strong> เพื่อประหยัดต้นทุนดำเนินงานของตลาด
+                    </div>
+                  );
+                  decisions = [
+                    "สั่งวิศวกรซ่อมปะเก็นและยางขอบประตูคลังแช่ทันทีเพื่อกันความเย็นรั่วไหล",
+                    "ปรับเปลี่ยนรอบละลายน้ำแข็งเครื่องเย็น (Defrost) ช่วงเวลา 00:00 - 04:00 (Off-Peak)",
+                    "อนุมัติโครงการติดตั้งม่านพลาสติกริ้วดักลมร้อนหน้าประตูเข้าคลังแช่แข็ง"
+                  ];
                 }
-                why={
-                  <div>
-                    เกณฑ์ประสิทธิภาพอาคารผักใหม่: <strong>ต้องไหลลื่นใน 30 นาที</strong> เพื่อคิวรถคอกขนส่งไม่ให้กระจุยกระจายกีดขวางถนนหลัก
-                  </div>
-                }
-                decisions={["สั่งระดมกำลังเจ้าหน้าที่จัดพื้นที่เสริมช่วยโบกรถ (+1,000 บ./วัน)", "เปิดช่องสำรองจอดรอบ 20:00 เฉพาะรถบรรทุกหนัก", "ขยายเป้าเวลารอบวิ่งเป็น 35 นาที (เพื่อความปลอดภัย)"]}
-                onDecision={handleMakeDecision}
-                loggedDecision={getDecisionForCase("P02")}
-              />
 
-              {workflowStatus["P02"] && (
-                <div className={`workflow-tracker-bar ${workflowStatus["P02"]}`}>
-                  <span className="pulse-dot"></span>
-                  <span>สถานะสั่งการ: <strong>{
-                    workflowStatus["P02"] === "ordered" ? "🕒 สั่งการทีมจัดพื้นที่เข้าคุมจุดตัดอาคารรถผัก..." : "✓ เสร็จสมบูรณ์ (ขจัดรถค้างสะสมและเดินรถได้ต่ำกว่า 30 นาทีต่อรอบ)"
-                  }</strong></span>
-                </div>
-              )}
-            </div>
-          )}
+                return (
+                  <div key={inc.id} className="incident-card-wrapper" style={{ marginBottom: "20px" }}>
+                    <DecisionCard
+                      caseId={caseId}
+                      aiLabel={aiLabel}
+                      title={title}
+                      what={what}
+                      why={why}
+                      decisions={decisions}
+                      onDecision={(cId, decTxt) => handleResolveIncident(inc.id, cId, decTxt)}
+                      loggedDecision={
+                        inc.resolved ? { decisionText: inc.resolution, timestamp: "แก้ไขแล้ว" } : getDecisionForCase(caseId)
+                      }
+                    />
 
-          {/* ========================================================================= */}
-          {/* A. ฝ่ายรักษาความสะอาด (Cleanliness Cases) */}
-          {/* ========================================================================= */}
-          {activeDeptId === "d-clean" && (
-            <div className="dept-cases-list">
-              <DecisionCard
-                caseId="C01"
-                aiLabel="Predictive + Rule"
-                title="ขยะอินทรีย์สะสมเกินความสามารถในการคัดแยก (Waste Overflow)"
-                what={
-                  <div>
-                    ลานผัก Zone C คาดว่าจะมีขยะอินทรีย์ล้นเกินความจุสะสม <strong>1,280 kg</strong> ในอีก 38 นาที ข้างหน้า เนื่องจากมีรถคอกขนส่งผลไม้เข้ามาพร้อมกันสะสม 27 คัน
+                    {workflowStatus[inc.id] && (
+                      <div className={`workflow-tracker-bar ${workflowStatus[inc.id]}`} style={{ marginTop: "-8px", borderRadius: "0 0 12px 12px" }}>
+                        <span className="pulse-dot"></span>
+                        <span>สถานะดำเนินการ: <strong>{
+                          workflowStatus[inc.id] === "ordered" 
+                            ? `🕒 ส่งใบสั่งอนุมัติแล้ว: กำลังลงบันทึกการอนุมัติและแก้สถานะหน้างาน...` 
+                            : `✓ อนุมัติการดำเนินการสำเร็จแล้ว: ปรับปรุงข้อมูลธุรกรรมดิบและคำนวณ KPI ดีขึ้นสำเร็จ!`
+                        }</strong></span>
+                      </div>
+                    )}
                   </div>
-                }
-                why={
-                  <div>
-                    ประเมินตามเกณฑ์ควบคุมขยะล้นถัง: <strong>ปริมาณขยะเกณฑ์เตือน &gt; 90%</strong> ปัจจุบันตรวจวัดพบระดับสะสมสูงถึง 92% พร้อมปัญหากลิ่นรบกวน (High Odor) และปริมาณแมลงวันขึ้นทะลุเป้าหมายที่ 45 ตัว/กับดัก (KPI &lt; 20 ตัว)
-                  </div>
-                }
-                decisions={["เพิ่มรถเก็บจาก Zone A (งบ +1,500 บ./วัน)", "ขยายรอบเก็บเป็นทุก 30 นาที (งบ +2,200 บ./วัน)", "จ้างผู้รับเหมาภายนอกชั่วคราว (+5,000 บ./ครั้ง)"]}
-                onDecision={handleMakeDecision}
-                loggedDecision={getDecisionForCase("C01")}
-              />
+                );
+              })
+            )}
+          </div>
 
-              {workflowStatus["C01"] && (
-                <div className={`workflow-tracker-bar ${workflowStatus["C01"]}`}>
-                  <span className="pulse-dot"></span>
-                  <span>สถานะสั่งการ: <strong>{
-                    workflowStatus["C01"] === "ordered" ? "🕒 สั่งการแล้ว (ช่างกำลังดำเนินการขนย้ายรถขยะ...)" : "✓ เสร็จสมบูรณ์ (ระบายขยะอินทรีย์เสร็จเรียบร้อย)"
-                  }</strong></span>
-                </div>
-              )}
 
-              <DecisionCard
-                caseId="C02"
-                aiLabel="Complaints SLA + Water Quality"
-                title="ข้อร้องเรียนจุดสกปรกตามแผงค้าค้างชำระหลุดเกณฑ์ SLA และน้ำเสีย COD พุ่งสูง"
-                what={
-                  <div>
-                    ข้อร้องเรียนความสกปรกสะสมบริเวณแผงสัตว์ปีกและลานปลา **หลุดเวลาปิดงาน SLA 6 รายการ** และดัชนีคุณภาพบ่อน้ำเสียมีค่าซีโอดี COD สูงวิกฤตพุ่งแตะ <strong>160 mg/L</strong> (หลุดเกณฑ์เป้าหมายมาตรฐาน)
-                  </div>
-                }
-                why={
-                  <div>
-                    เปรียบเทียบเกณฑ์ปิดงานสะอาด: **ต้องเคลียร์ขจัดจุดสกปรกเสร็จใน 30 นาที (SLA Met &gt; 95%)** แต่อัตรางานเคลียร์จริงทำได้ล่าช้าตกลงเหลือ 88% สอดคล้องกับค่า COD ทะลุเกณฑ์น้ำทิ้งตลาดสด (&lt; 120 mg/L)
-                  </div>
-                }
-                decisions={["สั่งระดมหน่วยฉีดน้ำล้างแผงด่วน (งบ +2,500 บ.)", "จัดโซนผู้รับผิดชอบกวาดจุดเปื้อนใหม่ (ค่าใช้จ่าย 0 บ.)", "ปรับลดขีดจำกัด SLA ซ่อมความสะอาดเป็น 45 นาที"]}
-                onDecision={handleMakeDecision}
-                loggedDecision={getDecisionForCase("C02")}
-              />
 
-              {workflowStatus["C02"] && (
-                <div className={`workflow-tracker-bar ${workflowStatus["C02"]}`}>
-                  <span className="pulse-dot"></span>
-                  <span>สถานะสั่งการ: <strong>{
-                    workflowStatus["C02"] === "ordered" ? "🕒 ทีมฉีดล้างกำลังเคลื่อนที่เข้าจุดแผงค้า..." : "✓ เสร็จสมบูรณ์ (กวาดล้างคราบสิ่งปฏิกูลค้างท่อและบำบัดน้ำเป็นปกติแล้ว)"
-                  }</strong></span>
-                </div>
-              )}
-            </div>
-          )}
 
-          {/* ========================================================================= */}
-          {/* B. ฝ่ายความปลอดภัย (Security Cases) */}
-          {/* ========================================================================= */}
-          {activeDeptId === "d-security" && (
-            <div className="dept-cases-list">
-              <DecisionCard
-                caseId="S01"
-                aiLabel="Illegal Parking Gate"
-                title="รถยนต์แอบลักลอบจอดในที่จอดสำหรับผู้ซื้อสินค้า (Illegal Parking)"
-                what={
-                  <div>
-                    ตรวจพบรถยนต์แอบลักลอบจอดทิ้งไม่ซื้อจริงสะสมบริเวณลานจอดหลัก ส่งผลให้อัตราจอดแฝงสูงขึ้นและลดความสะดวกของผู้ซื้อบริการจริง (อัตราจัดการจอดแฝงสำเร็จเพียง <strong>82%</strong>)
-                  </div>
-                }
-                why={
-                  <div>
-                    เป้าหมายที่จอดรถตลาด: **ต้องจัดการพวกลักลอบจอดและลดข้อร้องเรียนให้เหลือน้อยที่สุด** เพื่ออำนวยความสะดวกให้ผู้ซื้อเข้ามาหมุนเวียนได้สะดวก ปัจจุบันผู้ซื้อบ่นไม่มีที่จอดและมีข้อร้องเรียนสะสม 18 รายการ
-                  </div>
-                }
-                decisions={["สั่งล็อกล้อรถลักลอบจอดทันที (เก็บค่าปรับ +500 บ.)", "ติดตั้งกล้อง AI ตรวจจับรถแอบจอด (งบ +3,000 บ.)", "จัด รปภ. เฝ้ารายด่านลานจอดหลัก (+1,500 บ./กะ)"]}
-                onDecision={handleMakeDecision}
-                loggedDecision={getDecisionForCase("S01")}
-              />
 
-              {workflowStatus["S01"] && (
-                <div className={`workflow-tracker-bar ${workflowStatus["S01"]}`}>
-                  <span className="pulse-dot"></span>
-                  <span>สถานะสั่งการ: <strong>{
-                    workflowStatus["S01"] === "ordered" ? "🕒 รปภ. กำลังเคลื่อนที่ตรวจสอบและติดป้ายปรับ..." : "✓ เสร็จสมบูรณ์ (ล็อกล้อรถแฝงและสแกนสิทธิ์ทางเข้าอำนวยความสะดวกผู้ซื้อจริงแล้ว)"
-                  }</strong></span>
-                </div>
-              )}
 
-              <DecisionCard
-                caseId="S02"
-                aiLabel="Traffic Jam SLA"
-                title="จราจรทางเข้าคอขวดและจัดระเบียบรถผักเดินรอบอาคารล่าช้าขัดต่อเกณฑ์ 5 นาที"
-                what={
-                  <div>
-                    ระยะเวลารถติดขัดสะสมหนาแน่นด่านทางเข้า Gate 3 สูงถึง <strong>15 นาที</strong> และเวลารอบวิ่งจัดรถผักเข้าอาคารลานส่งเฉลี่ยพุ่งถึง <strong>42 นาทีต่อรอบ</strong>
-                  </div>
-                }
-                why={
-                  <div>
-                    เกณฑ์ควบคุมจราจร: **รถติดห้ามเกิน 5 นาทีต้องเคลียร์** และ **จัดรถผักเข้าอาคารเป้าหมายต้องไม่เกิน 40 นาทีต่อรอบ** เพื่อขจัดคอขวดสะสมจราจรรถขนส่ง
-                  </div>
-                }
-                decisions={["สั่งเปิดประตู Gate พิเศษเพิ่มเติม (+800 บ./กะ)", "ปรับแผนสลับเดินรถวันเวย์ทางเข้าออก (ค่าใช้จ่าย 0 บ.)", "เรียก รปภ. เสริมช่วยจัดคิวปล่อยรถผลไม้ (+1,200 บ./วัน)"]}
-                onDecision={handleMakeDecision}
-                loggedDecision={getDecisionForCase("S02")}
-              />
 
-              {workflowStatus["S02"] && (
-                <div className={`workflow-tracker-bar ${workflowStatus["S02"]}`}>
-                  <span className="pulse-dot"></span>
-                  <span>สถานะสั่งการ: <strong>{
-                    workflowStatus["S02"] === "ordered" ? "🕒 กำลังปรับทิศทางทางเดินรถและเสริม รปภ. ด่านทางร่วม..." : "✓ เสร็จสมบูรณ์ (ระบายคิวรถสะสมหน้า Gate ต่ำกว่า 5 นาทีเป็นปกติ)"
-                  }</strong></span>
-                </div>
-              )}
-            </div>
-          )}
 
-          {/* ========================================================================= */}
-          {/* C. ฝ่ายแรงงาน (Labor Cases) */}
-          {/* ========================================================================= */}
-          {activeDeptId === "d-labor" && (
-            <div className="dept-cases-list">
-              <DecisionCard
-                caseId="L01"
-                aiLabel="Customer Queue Delay"
-                title="เวลารอคอยของรถลูกค้าในการลงสินค้าขนถ่ายล่าช้าเกินกำหนด 10 นาที"
-                what={
-                  <div>
-                    รถลูกค้าขนส่งที่จอดรอลงของบริเวณลานค้าเพื่อขนถ่ายสินค้า จอดคอยเฉลี่ยยาวนาน <strong>22 นาที</strong> (หลุดเกณฑ์เป้าหมาย)
-                  </div>
-                }
-                why={
-                  <div>
-                    เป้าหมายการขนถ่าย: **เวลารอคอยสูงสุดของรถลูกค้าห้ามเกิน 10 นาที** และเวลาลงสินค้าตาม SLA ต้องลื่นไหล เนื่องจากกะปฏิบัติการนี้สัดส่วนแรงงานไม่สมดุลส่งผลให้งานล่าช้าขัด SLA สะสมรวม 19%
-                  </div>
-                }
-                decisions={["จ่ายค่าแรงโอทีจัดกะขนของเสริมด่วน (+3,200 บ./กะ)", "ปรับรอบเวลาจำกัดสิทธิ์รถที่มาจอดลงของ (ค่าดำเนินการ 0 บ.)", "จัดระเบียบคิวปล่อยรถเพื่อระบายช่องเทียบขนถ่าย"]}
-                onDecision={handleMakeDecision}
-                loggedDecision={getDecisionForCase("L01")}
-              />
-
-              {workflowStatus["L01"] && (
-                <div className={`workflow-tracker-bar ${workflowStatus["L01"]}`}>
-                  <span className="pulse-dot"></span>
-                  <span>สถานะสั่งการ: <strong>{
-                    workflowStatus["L01"] === "ordered" ? "🕒 หัวหน้ากะกำลังเรียกจัดกำลังคนเสริม..." : "✓ เสร็จสมบูรณ์ (เคลียร์เวลารอลงสินค้าของรถลูกค้าต่ำกว่า 10 นาที)"
-                  }</strong></span>
-                </div>
-              )}
-
-              <DecisionCard
-                caseId="L02"
-                aiLabel="Forklift PM & Idle"
-                title="อัตราการใช้งาน Forklift ตกต่ำกว่าเกณฑ์ 80% และขาดการตรวจสอบ PM เช็คสภาพ"
-                what={
-                  <div>
-                    อัตราการใช้งาน Forklift ตกลงเฉลี่ยเหลือเพียง <strong>50%</strong> และตรวจพบบันทึกขาดการประเมินสภาพ PM Check ระบบชาร์จและไฟเตือนประจำวัน
-                  </div>
-                }
-                why={
-                  <div>
-                    เป้าหมายฝ่ายแรงงาน: **รถ Forklift ต้องมีอัตราการใช้งานไม่ต่ำกว่า 80%** และต้องได้รับการทำบำรุงรักษาป้องกันเชิงควบคุม (Preventative Maintenance) ตรวจเช็คเครื่องยนต์ 100% เพื่อลดความสูญเสียกะงาน
-                  </div>
-                }
-                decisions={["สั่งด่วนช่างคลังเข้าซ่อมทำ PM Forklift ทั้งคลัง (-6,000 บ.)", "ปรับลดจำนวนเช่ารถและกระจายกะรถสแตนด์บาย (ค่าปรับ 0 บ.)", "เรียกใช้สัญญาช่างซัพพลายเออร์ดูแลด่วน"]}
-                onDecision={handleMakeDecision}
-                loggedDecision={getDecisionForCase("L02")}
-              />
-
-              {workflowStatus["L02"] && (
-                <div className={`workflow-tracker-bar ${workflowStatus["L02"]}`}>
-                  <span className="pulse-dot"></span>
-                  <span>สถานะสั่งการ: <strong>{
-                    workflowStatus["L02"] === "ordered" ? "🕒 ช่างไฟฟ้าเข้าตรวจสอบชุดแบตเตอรี่รถตัก..." : "✓ เสร็จสมบูรณ์ (Forklift ดำเนินการ PM เช็คลิสต์ 100% อัตราการรันสูงกว่า 80%)"
-                  }</strong></span>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ========================================================================= */}
-          {/* D. ฝ่ายซ่อมบำรุง (Maintenance Cases) */}
-          {/* ========================================================================= */}
-          {activeDeptId === "d-maintenance" && (
-            <div className="dept-cases-list">
-              <DecisionCard
-                caseId="M01"
-                aiLabel="Preventative Maintenance"
-                title="เครื่องผลิตไฟสำรองเกิด Breakdown ขัดข้องกระทบความสม่ำเสมอ"
-                what={
-                  <div>
-                    ตรวจพบเครื่องปั่นไฟฟ้าอาคารผลไม้หลัก (GEN-01) ชำรุดเสียหายขัดข้อง Breakdown สะสมยาวนาน <strong>120 นาที</strong> ส่งผลให้อัตราใช้เครื่องจักรลดลงเหลือ <strong>45%</strong>
-                  </div>
-                }
-                why={
-                  <div>
-                    เปรียบเทียบตามเกณฑ์ควบคุมขัดข้อง: <strong>Breakdown ต้องเป็น 0 และ Utilize ต้อง &gt; 80%</strong> เครื่องเกิดความร้อนในห้องสูบน้ำหล่อเย็นสูง หากไม่เร่งเปลี่ยนพัดลมความร้อนด่วน จะเกิดความเสี่ยงไฟฟ้าดับกระทบระบบห้องเย็นผู้ค้าผลไม้ 12 แผง
-                  </div>
-                }
-                decisions={["ซ่อมเปลี่ยนพัดลมไฟฟ้าด่วน (-8,500 บ. อะไหล่)", "สลับจ่ายไฟไปตัวเครื่อง 2 (สูญเสียน้ำมันสำรอง 15%)", "คุมการจ่ายไฟเพื่อลดความร้อน (ลดความสว่าง 20%)"]}
-                onDecision={handleMakeDecision}
-                loggedDecision={getDecisionForCase("M01")}
-              />
-
-              {workflowStatus["M01"] && (
-                <div className={`workflow-tracker-bar ${workflowStatus["M01"]}`}>
-                  <span className="pulse-dot"></span>
-                  <span>สถานะสั่งการ: <strong>{
-                    workflowStatus["M01"] === "ordered" ? "🕒 ส่งกำลังทีมช่างนำอะไหล่เข้าพื้นที่ GEN-01..." : "✓ เสร็จสมบูรณ์ (เปลี่ยนชิ้นส่วนพัดลมสำเร็จ อุณหภูมิเป็นปกติ 100% Run)"
-                  }</strong></span>
-                </div>
-              )}
-
-              <DecisionCard
-                caseId="M02"
-                aiLabel="SLA Compliance"
-                title="อัตราความเร็วในการจบงานซ่อมแผงค้าและระบบหลุดเกณฑ์ SLA ตลาด"
-                what={
-                  <div>
-                    ยอดการปิดงานแจ้งซ่อมระบบประปาและไฟฟ้ารอบสัปดาห์นี้ <strong>หลุดมาตรฐานข้อตกลง SLA รวม 9 รายการ</strong> เช่น งานซ่อมไฟฟ้า RQ-1045 ล่าช้าเกิน 180 นาที
-                  </div>
-                }
-                why={
-                  <div>
-                    เปรียบเทียบ KPI SLA: <strong>ความรวดเร็วงานซ่อมด่วนต้องสำเร็จใน 2 ชม. (SLA Met &gt; 95%)</strong> แต่อัตราปิดงานสัปดาห์นี้ทำได้เพียง 91% เนื่องจากขาดแคลนชิ้นส่วนสายไฟและข้อต่อในสต็อกกลาง
-                  </div>
-                }
-                decisions={["จัดซื้ออะไหล่สต็อกสายไฟสำรอง (-15,000 บ.)", "แบ่งโซนเขตรับผิดชอบทีมช่างใหม่ (ค่าใช้จ่าย 0 บ.)", "ขยาย SLA ซ่อมด่วนเป็น 3 ชม. (เสียความเชื่อมั่นผู้ค้า 5%)"]}
-                onDecision={handleMakeDecision}
-                loggedDecision={getDecisionForCase("M02")}
-              />
-
-              {workflowStatus["M02"] && (
-                <div className={`workflow-tracker-bar ${workflowStatus["M02"]}`}>
-                  <span className="pulse-dot"></span>
-                  <span>สถานะสั่งการ: <strong>{
-                    workflowStatus["M02"] === "ordered" ? "🕒 ส่งคำสั่งการคลังสินค้าเบิกซื้ออะไหล่..." : "✓ เสร็จสมบูรณ์ (ขจัดคอขวดวัสดุพร้อมประกันความเร็ว SLA 98% จบงาน)"
-                  }</strong></span>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ========================================================================= */}
-          {/* E. ฝ่าย รปภ. เฉพาะกิจ (Special Security Cases) */}
-          {/* ========================================================================= */}
-          {activeDeptId === "d-specsec" && (
-            <div className="dept-cases-list">
-              <DecisionCard
-                caseId="R01"
-                aiLabel="Emergency Response"
-                title="รายงานเหตุทะเลาะวิวาทและลักทรัพย์สะสมในสัปดาห์วิกฤต"
-                what={
-                  <div>
-                    มีบันทึกเหตุการณ์ทะเลาะวิวาทและแอบลักทรัพย์สินค้าสะสมรวม <strong>2 ครั้ง</strong> ในสัปดาห์นี้ บริเวณลานจอดหลักและลานค้าผลไม้
-                  </div>
-                }
-                why={
-                  <div>
-                    เกณฑ์ควบคุมเหตุความมั่นคง: <strong>สถิติต้องเป็น 0</strong> เพื่อความปลอดภัยสูงสุดของผู้ซื้อที่เข้ามาใช้บริการหมุนเวียนในตลาด
-                  </div>
-                }
-                decisions={["สั่งตั้งจุดตรวจร่วมพิเศษ รปภ. ตลอด 24 ชม. โซนลานจอด", "เพิ่มการเดินลาดตระเวนรอบตลาดช่วงตี 2-7 โมง (+2,000 บ./คืน)", "ติดตั้งป้ายคำเตือนการปรับและดำเนินคดีเด็ดขาด"]}
-                onDecision={handleMakeDecision}
-                loggedDecision={getDecisionForCase("R01")}
-              />
-
-              {workflowStatus["R01"] && (
-                <div className={`workflow-tracker-bar ${workflowStatus["R01"]}`}>
-                  <span className="pulse-dot"></span>
-                  <span>สถานะสั่งการ: <strong>{
-                    workflowStatus["R01"] === "ordered" ? "🕒 ทีม รปภ. เฉพาะกิจกำลังนำอุปกรณ์รั้วตั้งจุดตรวจร่วม..." : "✓ เสร็จสมบูรณ์ (สถาปนาความปลอดภัยและควบคุมความสงบในพื้นที่)"
-                  }</strong></span>
-                </div>
-              )}
-
-              <DecisionCard
-                caseId="R02"
-                aiLabel="Compliance Screening"
-                title="การสุ่มตรวจหาสารเสพติดปัสสาวะแรงงานพบผลเป็นบวก"
-                what={
-                  <div>
-                    สุ่มคัดกรองปัสสาวะกลุ่มแรงงานคลังกลางและคลังสินค้า 320 ราย ตรวจพบผลบวกสารเสพติดสะสมจำนวน <strong>2 ราย</strong>
-                  </div>
-                }
-                why={
-                  <div>
-                    นโยบายความสอดคล้องระเบียบแรงงานเสื้อม่วง: <strong>สารเสพติดต้องเป็น 0%</strong> เพื่อรักษาความปลอดภัยวินัยในการปฏิบัติงานคัดแยกสินค้า
-                  </div>
-                }
-                decisions={["ยกเลิกสิทธิ์เสื้อม่วงและส่งตำรวจดำเนินคดีทันที", "สั่งคัดกรองปัสสาวะแรงงานย่อยยกแผงค้าของแรงงานคนดังกล่าว", "เพิ่มเกณฑ์สุ่มตรวจฉี่แรงงานเป็น 20% ทุกสัปดาห์"]}
-                onDecision={handleMakeDecision}
-                loggedDecision={getDecisionForCase("R02")}
-              />
-
-              {workflowStatus["R02"] && (
-                <div className={`workflow-tracker-bar ${workflowStatus["R02"]}`}>
-                  <span className="pulse-dot"></span>
-                  <span>สถานะสั่งการ: <strong>{
-                    workflowStatus["R02"] === "ordered" ? "🕒 กำลังดำเนินเอกสารยึดสิทธิ์บัตรและประสานพนักงานสอบสวน..." : "✓ เสร็จสมบูรณ์ (ลงทัณฑ์วินัยและปรับปรุงมาตรการสแกนแรงงานแล้ว)"
-                  }</strong></span>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ========================================================================= */}
-          {/* F. ฝ่ายห้องเย็น (Cold Storage Cases) */}
-          {/* ========================================================================= */}
-          {activeDeptId === "d-cold" && (
-            <div className="dept-cases-list">
-              <DecisionCard
-                caseId="K01"
-                aiLabel="Energy Saving KPI"
-                title="วิเคราะห์การใช้กระแสไฟฟ้าและค่าพลังงานพุ่งสูงเกินเป้าหมายห้องเย็น A-01"
-                what={
-                  <div>
-                    อัตราการบริโภคพลังงานเครื่องไฟฟ้าห้องแช่แข็งหลัก (Cold Room A-01) สูงถึง <strong>1.45 หน่วย/ตร.ม./วัน</strong> (หลุดเกณฑ์เป้าหมายประหยัดพลังงาน)
-                  </div>
-                }
-                why={
-                  <div>
-                    เกณฑ์ควบคุมงบค่าไฟห้องเย็น: <strong>การบริโภคไฟต้องไม่เกิน 1.2 หน่วย/ตร.ม./วัน</strong> ตรวจพบความชื้นขอบประตูและปะเก็นยางเสื่อมสภาพทำให้สูญเสียไอเย็นสะสม
-                  </div>
-                }
-                decisions={["สั่งทีมช่างซ่อมบำรุงตรวจขอบยางประตูกันเย็นรั่วซึมทันที (-3,000 บ.)", "ปรับตั้งรอบ Defrost ละลายน้ำแข็งช่วง 00:00-04:00 เท่านั้น", "ติดตั้งม่านพลาสติกริ้วกันความร้อนเสริมตรงจุดขนถ่าย"]}
-                onDecision={handleMakeDecision}
-                loggedDecision={getDecisionForCase("K01")}
-              />
-
-              {workflowStatus["K01"] && (
-                <div className={`workflow-tracker-bar ${workflowStatus["K01"]}`}>
-                  <span className="pulse-dot"></span>
-                  <span>สถานะสั่งการ: <strong>{
-                    workflowStatus["K01"] === "ordered" ? "🕒 ช่างระบบความเย็นเข้าพื้นที่ตรวจสอบเครื่องปรับแรงดัน..." : "✓ เสร็จสมบูรณ์ (ลดการสิ้นเปลืองกำลังไฟเฉลี่ยต่ำกว่า 1.2 หน่วยได้ผลดี)"
-                  }</strong></span>
-                </div>
-              )}
-            </div>
-          )}
 
           <div style={{ margin: "32px 0 20px 0", borderBottom: "2px solid var(--line)" }} />
 
@@ -1185,19 +1127,23 @@ export default function Executive() {
                             type="button"
                             className="btn decision-btn inline-btn"
                             onClick={() => {
-                              handleMakeDecision(
-                                activeDeptId === "d-space" ? "P01" : 
-                                activeDeptId === "d-clean" ? "C01" : 
-                                activeDeptId === "d-security" ? "S01" : 
-                                activeDeptId === "d-labor" ? "L01" : 
-                                activeDeptId === "d-maintenance" ? "M01" :
-                                activeDeptId === "d-specsec" ? "R01" : "K01", 
-                                `[จากแชท] ${btnText}`
-                              );
-                              setCopilotMessages(prev => [
-                                ...prev,
-                                { role: "assistant", text: `✓ บันทึกข้อสั่งการอนุมัติของผู้บริหาร: "${btnText}" และสั่งจ่ายใบงานเรียบร้อยแล้ว` }
-                              ]);
+                              const firstInc = activeIncidents[0];
+                              if (firstInc) {
+                                handleResolveIncident(
+                                  firstInc.id,
+                                  firstInc.id.slice(-4).toUpperCase(),
+                                  `[จากแชท] ${btnText}`
+                                );
+                                setCopilotMessages(prev => [
+                                  ...prev,
+                                  { role: "assistant", text: `✓ บันทึกคำสั่งอนุมัติ: "${btnText}" สำหรับเคสสด ${firstInc.id.slice(-4).toUpperCase()} แล้วและระบบกำลังคำนวณ KPI ใหม่!` }
+                                ]);
+                              } else {
+                                setCopilotMessages(prev => [
+                                  ...prev,
+                                  { role: "assistant", text: `ไม่พบเคสวิกฤตค้างส่งผลการตรวจในขณะนี้ที่ต้องรับนโยบายนี้` }
+                                ]);
+                              }
                             }}
                           >
                             {btnText}
