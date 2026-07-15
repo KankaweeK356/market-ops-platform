@@ -759,14 +759,14 @@ export default function Executive() {
                     "จำกัดพื้นที่แบ่งโซนนิ่งผักใหม่เพิ่มช่องว่างสำหรับรถขนถ่าย"
                   ];
                 } else if (inc.formTemplateId === "tmpl-space-toxin") {
-                  const tested = Number(findAns("testedSamplesCount") || 60);
-                  const unsafe = Number(findAns("unsafeSamplesCount") || 3);
-                  const rate = tested > 0 ? (((tested - unsafe) / tested) * 100).toFixed(1) : "0.0";
+                  const prodType = findAns("productType") || "ผักใบ (Leafy Greens)";
+                  const stall = findAns("stallCode") || "C-15";
+                  const result = findAns("testResult") || "พบสารเคมีปนเปื้อน (Not Pass)";
                   aiLabel = "Chemical & Toxin";
-                  title = `ตรวจสารเคมีตกค้างปนเปื้อนในพืชผัก ณ โซน ${inc.zone || "ผักใบ"}`;
+                  title = `ตรวจสารเคมีปนเปื้อนตกค้างในพืชผัก แผงค้า ${stall}`;
                   what = (
                     <div>
-                      สุ่มตรวจพบยาฆ่าแมลงหรือสารเคมีสะสมรวม <strong>{unsafe} ตัวอย่าง</strong> จากทั้งหมดที่สุ่ม <strong>{tested} ตัวอย่าง</strong> อัตราปลอดภัยหลุดเป้าหมายเหลือ <strong>{rate}%</strong>
+                      สุ่มตรวจพบสารเคมีปนเปื้อนตกค้างในพืชผักประเภท <strong>{prodType}</strong> จากแผงค้า <strong>{stall}</strong> ผลการตรวจคือ <strong style={{ color: "var(--red-dark)" }}>{result}</strong>
                     </div>
                   );
                   why = (
@@ -858,12 +858,13 @@ export default function Executive() {
                     "จำกัดสิทธิ์เวลารถเทียบของชั่วคราวในช่วงกะเวลาวิกฤต"
                   ];
                 } else if (inc.formTemplateId === "tmpl-sec-routing") {
+                  const round = findAns("routingRound") || "รอบที่ 2 (11.00 - 15.00 น.)";
                   const mins = Number(findAns("truckRoutingMinutes") || 42);
                   aiLabel = "Truck Routing";
-                  title = `ระยะเวลาวิ่งจัดจอดรถ in อาคารรถผัก 3 รอบหลักหลุดเวลาเป้าหมาย`;
+                  title = `ระยะเวลาจัดรถเข้าชานชาลาอาคารผัก ${round} ล่าช้าเกินเกณฑ์`;
                   what = (
                     <div>
-                      เวลาเฉลี่ยการนำรถผักเข้าชานชาลาและสลับช่องจอดวิ่งล่าช้า ใช้เวลา <strong>{mins} นาทีต่อรอบ</strong>
+                      ตรวจเช็คช่วงเวลาเดินรถ <strong>{round}</strong> ใช้เวลาจัดจอดเทียบเฉลี่ยสะสม <strong>{mins} นาทีต่อรอบ</strong>
                     </div>
                   );
                   why = (
@@ -894,6 +895,27 @@ export default function Executive() {
                     `สั่ง รปภ. ล็อกล้อรถทะเบียน ${plate} ทันทีและเปรียบเทียบปรับ 500 บาท`,
                     `แปะใบสั่งเตือนระเบียบจอดหน้ารถทะเบียน ${plate} และให้บันทึกประวัติ`,
                     `ปล่อยผ่านเป็นกรณีพิเศษเนื่องจากเป็นผู้ค้าส่งส่งมอบสินค้าด่วน`
+                  ];
+                } else if (inc.formTemplateId === "tmpl-space-fines") {
+                  const violType = findAns("violationType") || "วางของกีดขวางทางเดิน (Stall Obstruction)";
+                  const amount = Number(findAns("fineAmount") || 0);
+                  const violator = findAns("violatorName") || "แผงป้าศรี (Zone A-08)";
+                  aiLabel = "Fine Violation";
+                  title = `มีคำสั่งเปรียบเทียบปรับยอดสูงจากกรณีทำผิดกฎระเบียบแผงค้า`;
+                  what = (
+                    <div>
+                      ตรวจพบกรณี <strong>{violType}</strong> โดยผู้กระทำความผิด <strong>{violator}</strong> มียอดสั่งปรับสะสมสูงถึง <strong>{amount.toLocaleString()} บาท</strong>
+                    </div>
+                  );
+                  why = (
+                    <div>
+                      การควบคุมระเบียบแผงค้า: <strong>ยอดปรับสะสมรายเคสต้องไม่เกิน 1,000 บาท</strong> หากสูงเกินเกณฑ์แสดงว่าเป็นการทำผิดระเบียบซ้ำซากที่ต้องการการตักเตือนระดับบริหาร
+                    </div>
+                  );
+                  decisions = [
+                    "สั่งการระงับการเปิดขายชั่วคราว 1 วัน พร้อมเรียกตักเตือน",
+                    "สั่งลดหย่อนผ่อนปรนค่าปรับกึ่งหนึ่งหากยินยอมรื้อถอนทันที",
+                    "อนุมัติส่งทีม รปภ. ร่วมจัดระเบียบและออกหนังสือทัณฑ์บนทางการ"
                   ];
                 } else if (inc.formTemplateId === "tmpl-lab-unload") {
                   const mins = Number(findAns("customerWaitMinutes") || 22);
