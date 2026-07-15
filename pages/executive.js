@@ -311,48 +311,7 @@ export default function Executive() {
       ];
     }
     return [];
-  }, [activeDeptId, stats]);kpi2: "148 mg/L", kpi3: "90%", state: "warning" },
-        { period: "2 สัปดาห์ก่อน", kpi1: "82%", kpi2: "125 mg/L", kpi3: "93%", state: "warning" },
-        { period: "3 สัปดาห์ก่อน", kpi1: "78%", kpi2: "115 mg/L", kpi3: "96%", state: "pass" }
-      ];
-    } else if (activeDeptId === "d-security") {
-      return [
-        { period: "สัปดาห์ปัจจุบัน (วิกฤต)", kpi1: "15 นาที", kpi2: "42 นาที", kpi3: "82%", state: "alert" },
-        { period: "สัปดาห์ก่อน", kpi1: "11 นาที", kpi2: "39 นาที", kpi3: "87%", state: "warning" },
-        { period: "2 สัปดาห์ก่อน", kpi1: "6 นาที", kpi2: "38 นาที", kpi3: "92%", state: "warning" },
-        { period: "3 สัปดาห์ก่อน", kpi1: "4 นาที", kpi2: "35 นาที", kpi3: "96%", state: "pass" }
-      ];
-    } else if (activeDeptId === "d-labor") {
-      return [
-        { period: "สัปดาห์ปัจจุบัน (วิกฤต)", kpi1: "22 นาที", kpi2: "81%", kpi3: "50% (งดตรวจ PM)", state: "alert" },
-        { period: "สัปดาห์ก่อน", kpi1: "18 นาที", kpi2: "83%", kpi3: "62% (ขาด PM)", state: "warning" },
-        { period: "2 สัปดาห์ก่อน", kpi1: "12 นาที", kpi2: "88%", kpi3: "75% (PM ครบ)", state: "warning" },
-        { period: "3 สัปดาห์ก่อน", kpi1: "8 นาที", kpi2: "92%", kpi3: "85% (PM ครบ)", state: "pass" }
-      ];
-    } else if (activeDeptId === "d-maintenance") {
-      return [
-        { period: "สัปดาห์ปัจจุบัน (วิกฤต)", kpi1: "45%", kpi2: "120 นาที", kpi3: "91.0%", state: "alert" },
-        { period: "สัปดาห์ก่อน", kpi1: "62%", kpi2: "45 นาที", kpi3: "93.4%", state: "warning" },
-        { period: "2 สัปดาห์ก่อน", kpi1: "78%", kpi2: "15 นาที", kpi3: "96.5%", state: "pass" },
-        { period: "3 สัปดาห์ก่อน", kpi1: "82%", kpi2: "0 นาที", kpi3: "98.2%", state: "pass" }
-      ];
-    } else if (activeDeptId === "d-specsec") {
-      return [
-        { period: "สัปดาห์ปัจจุบัน (วิกฤต)", kpi1: "2 ครั้ง", kpi2: "พบ 2 ราย", kpi3: "ตรวจครบ", state: "alert" },
-        { period: "สัปดาห์ก่อน", kpi1: "1 ครั้ง", kpi2: "พบ 0 ราย", kpi3: "ตรวจครบ", state: "pass" },
-        { period: "2 สัปดาห์ก่อน", kpi1: "0 ครั้ง", kpi2: "พบ 1 ราย", kpi3: "ตรวจครบ", state: "warning" },
-        { period: "3 สัปดาห์ก่อน", kpi1: "0 ครั้ง", kpi2: "พบ 0 ราย", kpi3: "ตรวจครบ", state: "pass" }
-      ];
-    } else if (activeDeptId === "d-cold") {
-      return [
-        { period: "สัปดาห์ปัจจุบัน (วิกฤต)", kpi1: "4.8", kpi2: "85%", kpi3: "1.45 หน่วย", state: "warning" },
-        { period: "สัปดาห์ก่อน", kpi1: "4.7", kpi2: "82%", kpi3: "1.32 หน่วย", state: "warning" },
-        { period: "2 สัปดาห์ก่อน", kpi1: "4.8", kpi2: "84%", kpi3: "1.18 หน่วย", state: "pass" },
-        { period: "3 สัปดาห์ก่อน", kpi1: "4.9", kpi2: "88%", kpi3: "1.10 หน่วย", state: "pass" }
-      ];
-    }
-    return [];
-  }, [activeDeptId]);
+  }, [activeDeptId, stats]);
 
   // ลิสต์คำถามด่วนอ้างอิงตามตัวชี้วัดความสอดคล้อง (Quick KPI Questions)
   const quickQuestions = useMemo(() => {
