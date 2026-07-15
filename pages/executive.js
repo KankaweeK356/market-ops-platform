@@ -180,66 +180,138 @@ export default function Executive() {
     return loggedDecisions.find(d => d.caseId === caseId);
   };
 
-  // แถบเป้าหมายตัวชี้วัด KPI รายฝ่ายงาน ปรับแก้ตามคำสั่งตลาดสี่มุมเมืองล่าสุด
+  // แถบเป้าหมายตัวชี้วัด KPI รายฝ่ายงาน ปรับแก้ตามคำสั่งตลาดสี่มุมเมืองล่าสุด (คำนวณแบบไดนามิกจากข้อมูลรายงาน)
   const kpiMetrics = useMemo(() => {
+    if (!stats || !stats.dynamicKPIs) return [];
+    const dk = stats.dynamicKPIs;
     if (activeDeptId === "d-space") {
+      const occVal = dk["d-space"].occupancy;
+      const safeVal = dk["d-space"].safety;
+      const routVal = dk["d-space"].routing;
       return [
-        { label: "อัตราเช่าแผงค้ารวมทุกโซน (Stall Occupancy)", target: ">= 90%", current: "96.0%", status: "pass" },
-        { label: "สัดส่วนตรวจสารเคมีแล้วปลอดภัย", target: "100%", current: "95.0%", status: "warning" },
-        { label: "เวลาจัดจอดรถในอาคารรถผัก (3 รอบหลัก)", target: "< 30 นาที", current: "33 นาที", status: "warning" }
+        { label: "อัตราเช่าแผงค้ารวมทุกโซน (Stall Occupancy)", target: ">= 90%", current: `${occVal}%`, status: occVal >= 90 ? "pass" : "alert" },
+        { label: "สัดส่วนตรวจสารเคมีแล้วปลอดภัย", target: "100%", current: `${safeVal}%`, status: safeVal === 100 ? "pass" : safeVal >= 95 ? "warning" : "alert" },
+        { label: "เวลาจัดจอดรถในอาคารรถผัก (3 รอบหลัก)", target: "< 30 นาที", current: `${routVal} นาที`, status: routVal < 30 ? "pass" : "warning" }
       ];
     } else if (activeDeptId === "d-clean") {
+      const overVal = dk["d-clean"].overflow;
+      const codVal = dk["d-clean"].cod;
+      const slaVal = dk["d-clean"].sla;
       return [
-        { label: "ระดับขยะล้นถัง (Organic Waste Overflow)", target: "< 80%", current: "92.0%", status: "alert" },
-        { label: "คุณภาพน้ำทิ้งบ่อบำบัด COD", target: "< 120 mg/L", current: "160 mg/L", status: "alert" },
-        { label: "เคลียร์ข้อร้องเรียนจุดสกปรกตาม SLA", target: "> 95%", current: "88.0%", status: "warning" }
+        { label: "ระดับขยะล้นถัง (Organic Waste Overflow)", target: "< 80%", current: `${overVal}%`, status: overVal < 80 ? "pass" : overVal < 90 ? "warning" : "alert" },
+        { label: "คุณภาพน้ำทิ้งบ่อบำบัด COD", target: "< 120 mg/L", current: `${codVal} mg/L`, status: codVal < 120 ? "pass" : "alert" },
+        { label: "เคลียร์ข้อร้องเรียนจุดสกปรกตาม SLA", target: "> 95%", current: `${slaVal}%`, status: slaVal >= 95 ? "pass" : slaVal >= 90 ? "warning" : "alert" }
       ];
     } else if (activeDeptId === "d-security") {
+      const trafVal = dk["d-security"].traffic;
+      const routVal = dk["d-security"].routing;
+      const illVal = dk["d-security"].illegal;
       return [
-        { label: "เวลาเคลียร์การจราจรติดขัด", target: "< 5 นาที", current: "15 นาที", status: "alert" },
-        { label: "จัดระเบียบรถเข้าอาคารลานผัก", target: "<= 40 นาที/รอบ", current: "42 นาที", status: "warning" },
-        { label: "การจัดการแอบลักลอบจอดรถ", target: "สูงสุด (เป้า > 95%)", current: "82% (มีข้อร้องเรียน)", status: "warning" }
+        { label: "เวลาเคลียร์การจราจรติดขัด", target: "< 5 นาที", current: `${trafVal} นาที`, status: trafVal < 5 ? "pass" : "alert" },
+        { label: "จัดระเบียบรถเข้าอาคารลานผัก", target: "<= 40 นาที/รอบ", current: `${routVal} นาที`, status: routVal <= 40 ? "pass" : "warning" },
+        { label: "การจัดการแอบลักลอบจอดรถ", target: "สูงสุด (เป้า > 95%)", current: `${illVal}%`, status: illVal >= 95 ? "pass" : "warning" }
       ];
     } else if (activeDeptId === "d-labor") {
+      const waitVal = dk["d-labor"].wait;
+      const slaVal = dk["d-labor"].sla;
+      const forkVal = dk["d-labor"].forklift;
       return [
-        { label: "ลูกค้ารอคอยลงของนานสุด", target: "< 10 นาที", current: "22 นาที", status: "alert" },
-        { label: "เวลาลงสินค้าสำเร็จตาม SLA", target: "> 90%", current: "81.0%", status: "warning" },
-        { label: "การใช้งาน Forklift & ตรวจ PM", target: ">= 80% (ตรวจ PM)", current: "50% (จอดทิ้ง / ไม่ได้ตรวจ)", status: "warning" }
+        { label: "ลูกค้ารอคอยลงของนานสุด", target: "< 10 นาที", current: `${waitVal} นาที`, status: waitVal < 10 ? "pass" : "alert" },
+        { label: "เวลาลงสินค้าสำเร็จตาม SLA", target: "> 90%", current: `${slaVal}%`, status: slaVal >= 90 ? "pass" : "warning" },
+        { label: "การใช้งาน Forklift & ตรวจ PM", target: ">= 80%", current: `${forkVal}%`, status: forkVal >= 80 ? "pass" : "warning" }
       ];
     } else if (activeDeptId === "d-maintenance") {
+      const utiVal = dk["d-maintenance"].utilize;
+      const breVal = dk["d-maintenance"].breakdown;
+      const slaVal = dk["d-maintenance"].sla;
       return [
-        { label: "การใช้เครื่องจักร (Utilization)", target: "> 80%", current: "45.0% (Gen 1)", status: "alert" },
-        { label: "เครื่องจักรชำรุดสะสม (Breakdown)", target: "0 นาที", current: "พบ 120 นาที", status: "alert" },
-        { label: "ความเร็วงานซ่อมตาม SLA Met", target: "> 95%", current: "91.0%", status: "warning" }
+        { label: "การใช้เครื่องจักร (Utilization)", target: "> 80%", current: `${utiVal}%`, status: utiVal >= 80 ? "pass" : "alert" },
+        { label: "เครื่องจักรชำรุดสะสม (Breakdown)", target: "0 นาที", current: `${breVal} นาที`, status: breVal === 0 ? "pass" : "alert" },
+        { label: "ความเร็วงานซ่อมตาม SLA Met", target: "> 95%", current: `${slaVal}%`, status: slaVal >= 95 ? "pass" : "warning" }
       ];
     } else if (activeDeptId === "d-specsec") {
+      const incVal = dk["d-specsec"].incidents;
+      const drugVal = dk["d-specsec"].drugs;
       return [
-        { label: "เหตุลักทรัพย์และทะเลาะวิวาท", target: "0 ครั้ง", current: "2 ครั้ง", status: "alert" },
-        { label: "การสุ่มตรวจหาสารเสพติดแรงงาน", target: "ตรวจครบ (พบ = 0)", current: "พบสารเสพติด 2 ราย", status: "alert" }
+        { label: "เหตุลักทรัพย์และทะเลาะวิวาท", target: "0 ครั้ง", current: `${incVal} ครั้ง`, status: incVal === 0 ? "pass" : "alert" },
+        { label: "การสุ่มตรวจหาสารเสพติดแรงงาน", target: "พบ = 0", current: `พบสารเสพติด ${drugVal} ราย`, status: drugVal === 0 ? "pass" : "alert" }
       ];
     } else if (activeDeptId === "d-cold") {
+      const satVal = dk["d-cold"].satisfaction;
+      const depVal = dk["d-cold"].deposit;
+      const powVal = dk["d-cold"].power;
       return [
-        { label: "พึงพอใจการบริการ (Satisfaction)", target: ">= 4.5 / 5.0", current: "4.8 / 5.0", status: "pass" },
-        { label: "อัตราใช้ประโยชน์พื้นที่แช่เย็น", target: ">= 80%", current: "85.0%", status: "pass" },
-        { label: "อัตราการสิ้นเปลืองกระแสไฟฟ้า", target: "<= 1.2 หน่วย/ตร.ม./วัน", current: "1.45 หน่วย", status: "warning" }
+        { label: "พึงพอใจการบริการ (Satisfaction)", target: ">= 4.5 / 5.0", current: `${satVal} / 5.0`, status: satVal >= 4.5 ? "pass" : "warning" },
+        { label: "อัตราใช้ประโยชน์พื้นที่แช่เย็น", target: ">= 80%", current: `${depVal}%`, status: depVal >= 80 ? "pass" : "warning" },
+        { label: "อัตราการสิ้นเปลืองกระแสไฟฟ้า", target: "<= 1.2 หน่วย/ตร.ม./วัน", current: `${powVal} หน่วย`, status: powVal <= 1.2 ? "pass" : "warning" }
       ];
     }
     return [];
-  }, [activeDeptId]);
+  }, [activeDeptId, stats]);
 
-  // สถิติข้อมูลแนวโน้ม 4 สัปดาห์ย้อนหลัง (GAP 1 - เรียงจากใหม่สุดไปเก่าสุดตามคำขอ)
+  // สถิติข้อมูลแนวโน้ม 4 สัปดาห์ย้อนหลัง (สัปดาห์ปัจจุบันดึงจากข้อมูลไดนามิก)
   const historicalTrends = useMemo(() => {
+    if (!stats || !stats.dynamicKPIs) return [];
+    const dk = stats.dynamicKPIs;
     if (activeDeptId === "d-space") {
+      const s = dk["d-space"];
       return [
-        { period: "สัปดาห์ปัจจุบัน (วิกฤต)", kpi1: "96.0%", kpi2: "95.0%", kpi3: "33 นาที", state: "warning" },
+        { period: "สัปดาห์ปัจจุบัน (รันไทม์)", kpi1: `${s.occupancy}%`, kpi2: `${s.safety}%`, kpi3: `${s.routing} นาที`, state: s.occupancy >= 90 && s.safety >= 95 ? "pass" : "warning" },
         { period: "สัปดาห์ก่อน", kpi1: "95.0%", kpi2: "98.0%", kpi3: "28 นาที", state: "pass" },
         { period: "2 สัปดาห์ก่อน", kpi1: "93.0%", kpi2: "100%", kpi3: "25 นาที", state: "pass" },
         { period: "3 สัปดาห์ก่อน", kpi1: "92.0%", kpi2: "100%", kpi3: "24 นาที", state: "pass" }
       ];
     } else if (activeDeptId === "d-clean") {
+      const s = dk["d-clean"];
       return [
-        { period: "สัปดาห์ปัจจุบัน (วิกฤต)", kpi1: "92%", kpi2: "160 mg/L", kpi3: "88%", state: "alert" },
+        { period: "สัปดาห์ปัจจุบัน (รันไทม์)", kpi1: `${s.overflow}%`, kpi2: `${s.cod} mg/L`, kpi3: `${s.sla}%`, state: s.overflow < 90 && s.cod < 120 ? "pass" : "alert" },
         { period: "สัปดาห์ก่อน", kpi1: "88%", kpi2: "148 mg/L", kpi3: "90%", state: "warning" },
+        { period: "2 สัปดาห์ก่อน", kpi1: "82%", kpi2: "125 mg/L", kpi3: "93%", state: "warning" },
+        { period: "3 สัปดาห์ก่อน", kpi1: "78%", kpi2: "115 mg/L", kpi3: "96%", state: "pass" }
+      ];
+    } else if (activeDeptId === "d-security") {
+      const s = dk["d-security"];
+      return [
+        { period: "สัปดาห์ปัจจุบัน (รันไทม์)", kpi1: `${s.traffic} นาที`, kpi2: `${s.routing} นาที`, kpi3: `${s.illegal}%`, state: s.traffic < 5 ? "pass" : "alert" },
+        { period: "สัปดาห์ก่อน", kpi1: "11 นาที", kpi2: "39 นาที", kpi3: "87%", state: "warning" },
+        { period: "2 สัปดาห์ก่อน", kpi1: "6 นาที", kpi2: "38 นาที", kpi3: "92%", state: "warning" },
+        { period: "3 สัปดาห์ก่อน", kpi1: "4 นาที", kpi2: "35 นาที", kpi3: "96%", state: "pass" }
+      ];
+    } else if (activeDeptId === "d-labor") {
+      const s = dk["d-labor"];
+      return [
+        { period: "สัปดาห์ปัจจุบัน (รันไทม์)", kpi1: `${s.wait} นาที`, kpi2: `${s.sla}%`, kpi3: `${s.forklift}%`, state: s.wait < 10 && s.sla >= 90 ? "pass" : "alert" },
+        { period: "สัปดาห์ก่อน", kpi1: "18 นาที", kpi2: "83%", kpi3: "62% (ขาด PM)", state: "warning" },
+        { period: "2 สัปดาห์ก่อน", kpi1: "12 นาที", kpi2: "88%", kpi3: "75% (PM ครบ)", state: "warning" },
+        { period: "3 สัปดาห์ก่อน", kpi1: "8 นาที", kpi2: "92%", kpi3: "85% (PM ครบ)", state: "pass" }
+      ];
+    } else if (activeDeptId === "d-maintenance") {
+      const s = dk["d-maintenance"];
+      return [
+        { period: "สัปดาห์ปัจจุบัน (รันไทม์)", kpi1: `${s.utilize}%`, kpi2: `${s.breakdown} นาที`, kpi3: `${s.sla}%`, state: s.breakdown === 0 && s.sla >= 95 ? "pass" : "alert" },
+        { period: "สัปดาห์ก่อน", kpi1: "62%", kpi2: "45 นาที", kpi3: "93.4%", state: "warning" },
+        { period: "2 สัปดาห์ก่อน", kpi1: "78%", kpi2: "15 นาที", kpi3: "96.5%", state: "pass" },
+        { period: "3 สัปดาห์ก่อน", kpi1: "82%", kpi2: "0 นาที", kpi3: "98.2%", state: "pass" }
+      ];
+    } else if (activeDeptId === "d-specsec") {
+      const s = dk["d-specsec"];
+      return [
+        { period: "สัปดาห์ปัจจุบัน (รันไทม์)", kpi1: `${s.incidents} ครั้ง`, kpi2: `พบ ${s.drugs} ราย`, kpi3: "ตรวจครบ", state: s.incidents === 0 && s.drugs === 0 ? "pass" : "alert" },
+        { period: "สัปดาห์ก่อน", kpi1: "1 ครั้ง", kpi2: "พบ 0 ราย", kpi3: "ตรวจครบ", state: "pass" },
+        { period: "2 สัปดาห์ก่อน", kpi1: "0 ครั้ง", kpi2: "พบ 1 ราย", kpi3: "ตรวจครบ", state: "warning" },
+        { period: "3 สัปดาห์ก่อน", kpi1: "0 ครั้ง", kpi2: "พบ 0 ราย", kpi3: "ตรวจครบ", state: "pass" }
+      ];
+    } else if (activeDeptId === "d-cold") {
+      const s = dk["d-cold"];
+      return [
+        { period: "สัปดาห์ปัจจุบัน (รันไทม์)", kpi1: `${s.satisfaction}`, kpi2: `${s.deposit}%`, kpi3: `${s.power} หน่วย`, state: s.satisfaction >= 4.5 && s.power <= 1.2 ? "pass" : "warning" },
+        { period: "สัปดาห์ก่อน", kpi1: "4.7", kpi2: "82%", kpi3: "1.32 หน่วย", state: "warning" },
+        { period: "2 สัปดาห์ก่อน", kpi1: "4.8", kpi2: "84%", kpi3: "1.18 หน่วย", state: "pass" },
+        { period: "3 สัปดาห์ก่อน", kpi1: "4.9", kpi2: "88%", kpi3: "1.10 หน่วย", state: "pass" }
+      ];
+    }
+    return [];
+  }, [activeDeptId, stats]);kpi2: "148 mg/L", kpi3: "90%", state: "warning" },
         { period: "2 สัปดาห์ก่อน", kpi1: "82%", kpi2: "125 mg/L", kpi3: "93%", state: "warning" },
         { period: "3 สัปดาห์ก่อน", kpi1: "78%", kpi2: "115 mg/L", kpi3: "96%", state: "pass" }
       ];
