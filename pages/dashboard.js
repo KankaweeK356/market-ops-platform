@@ -1,436 +1,405 @@
-import { useEffect, useMemo, useState } from "react";
-import dynamic from "next/dynamic";
+// pages/dashboard.js — Department Command Center (Supervisor View)
+import { useEffect, useState } from "react";
 import Layout from "../components/Layout";
-import StatusStamp from "../components/StatusStamp";
-import { 
-  getReports, 
-  computeStats, 
-  resetToSeed, 
-  getDepartments, 
-  getWorkPackages, 
-  getActivities, 
-  deleteSubmission 
-} from "../lib/storage";
 
-const ResponsiveContainer = dynamic(
-  () => import("recharts").then((m) => m.ResponsiveContainer),
-  { ssr: false }
-);
-const BarChart = dynamic(() => import("recharts").then((m) => m.BarChart), { ssr: false });
-const Bar = dynamic(() => import("recharts").then((m) => m.Bar), { ssr: false });
-const XAxis = dynamic(() => import("recharts").then((m) => m.XAxis), { ssr: false });
-const YAxis = dynamic(() => import("recharts").then((m) => m.YAxis), { ssr: false });
-const Tooltip = dynamic(() => import("recharts").then((m) => m.Tooltip), { ssr: false });
-const PieChart = dynamic(() => import("recharts").then((m) => m.PieChart), { ssr: false });
-const Pie = dynamic(() => import("recharts").then((m) => m.Pie), { ssr: false });
-const Cell = dynamic(() => import("recharts").then((m) => m.Cell), { ssr: false });
-
-const STATUS_COLORS = { ปกติ: "#3f7d5c", ต้องติดตาม: "#c08a28", เร่งด่วน: "#b23a2e" };
+const DEPT_CONFIGS = {
+  "d-clean": {
+    label: "ฝ่ายรักษาความสะอาด",
+    icon: "🧹",
+    color: "#0d9488",
+    aiInsight: "ปริมาณขยะสะสมใน Zone C มีแนวโน้มเพิ่มขึ้นต่อเนื่องในช่วงเย็น แนะนำให้เพิ่มรอบบริการกวาดล้างเสริมเวลา 15:00 น. ก่อนเข้าสู่ช่วงผู้ซื้อหนาแน่นหนาตา",
+    kpis: [
+      { label: "Waste Overflow Rate", value: (val) => `${val}%`, desc: "ระดับความจุของถังขยะที่สูงสุด (Peak)" },
+      { label: "Cleaning SLA Compliance", value: () => "96.2%", desc: "สถิติตามกรอบ SLA" },
+      { label: "Fuel Usage (Trucks)", value: () => "420 ลิตร", desc: "การใช้เชื้อเพลิงวันนี้" },
+      { label: "Bin Cleaning Rate", value: () => "88.5%", desc: "อัตราความสะอาดถังพัก" }
+    ]
+  },
+  "d-security": {
+    label: "ฝ่ายรักษาความปลอดภัย",
+    icon: "🛡️",
+    color: "#3b82f6",
+    aiInsight: "พบอัตราความเร็วรถสะสมช่องทางเข้าหลักช้าลง 20% ในรอบ 15 นาทีที่ผ่านมา ควรส่งกำลังเจ้าหน้าที่เดินเท้าจัดจราจรพิเศษหน้า Gate 3 เสริมแนวระบาย",
+    kpis: [
+      { label: "Traffic Queue Time", value: (val) => `${val} นาที`, desc: "เวลารอผ่านด่านเฉลี่ย" },
+      { label: "Incident Response Time", value: () => "6.4 นาที", desc: "เวลาเข้าเผชิญเหตุเฉลี่ย" },
+      { label: "Illegal Parking Incidents", value: () => "14 คัน", desc: "พบจอดแฝงนอกจุดที่กำหนด" }
+    ]
+  },
+  "d-maintenance": {
+    label: "ฝ่ายซ่อมบำรุง",
+    icon: "🔧",
+    color: "#ef4444",
+    aiInsight: "ระบบมอเตอร์หลักทำงานติดต่อกัน 48 ชั่วโมง อุณหภูมิพัดลมระบายสะสมใกล้พุ่งเตือนระดับ Warning ควรจัดแผน PM เฝ้าระวังภายในคืนนี้",
+    kpis: [
+      { label: "Motor Operating Temp", value: (val) => `${val}°C`, desc: "อุณหภูมิห้องเครื่องหลัก (SCADA)" },
+      { label: "Repair SLA Compliance", value: () => "91.2%", desc: "สถิติจบงานตาม SLA" },
+      { label: "Machine Utilization Rate", value: (val, scenario) => scenario === "Festival" ? "96.5%" : scenario === "Busy" ? "82.1%" : "58.4%", desc: "อัตราการเดินเครื่องสะสม" }
+    ]
+  }
+};
 
 export default function Dashboard() {
-  const [reports, setReports] = useState([]);
-  const [departments, setDepartments] = useState([]);
-  const [workPackages, setWorkPackages] = useState([]);
-  const [activities, setActivities] = useState([]);
-
-  // Hierarchical Filter State
-  const [filterDept, setFilterDept] = useState("ทั้งหมด");
-  const [filterWp, setFilterWp] = useState("ทั้งหมด");
-  const [filterAct, setFilterAct] = useState("ทั้งหมด");
-  const [filterStatus, setFilterStatus] = useState("ทั้งหมด");
+  const [data, setData] = useState(null);
+  const [tasks, setTasks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filterDept, setFilterDept] = useState("d-clean");
   
-  const [ready, setReady] = useState(false);
+  // Request Modal State
+  const [showRequestModal, setShowRequestModal] = useState(false);
+  const [reqTitle, setReqTitle] = useState("");
+  const [reqCost, setReqCost] = useState("");
+  
+  const [actionMessage, setActionMessage] = useState(null);
 
   useEffect(() => {
-    setReports(getReports());
-    setDepartments(getDepartments());
-    setWorkPackages(getWorkPackages());
-    setActivities(getActivities());
-    setReady(true);
+    fetchAll();
+    const interval = setInterval(fetchAll, 30000); // auto-refresh 30s
+    return () => clearInterval(interval);
   }, []);
 
-  // Filter lists for dropdown dependency
-  const availableWPs = useMemo(() => {
-    if (filterDept === "ทั้งหมด") return [];
-    return workPackages.filter(wp => wp.departmentId === filterDept);
-  }, [filterDept, workPackages]);
+  async function fetchAll() {
+    try {
+      const [dashRes, taskRes] = await Promise.all([
+        fetch("/api/dashboard"),
+        fetch("/api/tasks"),
+      ]);
 
-  const availableActs = useMemo(() => {
-    if (filterWp === "ทั้งหมด") return [];
-    return activities.filter(act => act.workPackageId === filterWp);
-  }, [filterWp, activities]);
+      const dashText = await dashRes.text();
+      const taskText = await taskRes.text();
 
-  // Reset dependent filters when parent changes
-  function handleDeptChange(e) {
-    setFilterDept(e.target.value);
-    setFilterWp("ทั้งหมด");
-    setFilterAct("ทั้งหมด");
-  }
+      let dashData = null;
+      let taskData = [];
 
-  function handleWpChange(e) {
-    setFilterWp(e.target.value);
-    setFilterAct("ทั้งหมด");
-  }
+      try { dashData = JSON.parse(dashText); } catch { console.error("Dashboard API non-JSON:", dashText.slice(0, 200)); }
+      try { taskData = JSON.parse(taskText); } catch { console.error("Tasks API non-JSON:", taskText.slice(0, 200)); }
 
-  // Filter reports list based on all filters
-  const filteredReports = useMemo(() => {
-    return reports.filter((r) => {
-      const matchDept = filterDept === "ทั้งหมด" || r.departmentId === filterDept;
-      const matchWp = filterWp === "ทั้งหมด" || r.workPackageId === filterWp;
-      const matchAct = filterAct === "ทั้งหมด" || r.activityId === filterAct;
-      const matchStatus = filterStatus === "ทั้งหมด" || r.derivedStatus === filterStatus;
-      return matchDept && matchWp && matchAct && matchStatus;
-    });
-  }, [reports, filterDept, filterWp, filterAct, filterStatus]);
-
-  // Calculate dynamic stats
-  const stats = useMemo(() => computeStats(filteredReports), [filteredReports]);
-
-  // Compute dynamic chart data based on drill-down level
-  const dynamicChartData = useMemo(() => {
-    if (filterDept === "ทั้งหมด") {
-      // Drill level: Departments summary
-      const counts = {};
-      filteredReports.forEach(s => {
-        counts[s.departmentId] = (counts[s.departmentId] || 0) + 1;
-      });
-      return Object.entries(counts).map(([id, value]) => {
-        const dept = departments.find(d => d.id === id);
-        return { name: dept ? dept.name : id, value };
-      });
+      if (dashData) setData(dashData);
+      if (Array.isArray(taskData)) setTasks(taskData);
+    } catch (err) {
+      console.error("fetchAll error:", err);
+    } finally {
+      setLoading(false);
     }
+  }
+
+  const triggerAction = (msg) => {
+    setActionMessage(msg);
+    setTimeout(() => setActionMessage(null), 3000);
+  };
+
+  const handleCreateRequest = async (e) => {
+    e.preventDefault();
+    if (!reqTitle || !reqCost) return;
     
-    if (filterWp === "ทั้งหมด") {
-      // Drill level: Work Packages inside selected Department
-      const counts = {};
-      filteredReports.forEach(s => {
-        counts[s.workPackageId] = (counts[s.workPackageId] || 0) + 1;
+    try {
+      const res = await fetch("/api/supervisor/request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          departmentId: filterDept,
+          title: reqTitle,
+          cost: parseFloat(reqCost)
+        })
       });
-      return Object.entries(counts).map(([id, value]) => {
-        const wp = workPackages.find(w => w.id === id);
-        return { name: wp ? wp.name : id, value };
-      });
+      
+      if (res.ok) {
+        setReqTitle("");
+        setReqCost("");
+        setShowRequestModal(false);
+        triggerAction("📩 ส่งรายงานขอคำอนุมัติงบฉุกเฉินถึงผู้บริหารเรียบร้อยแล้ว");
+        fetchAll(); // Refresh tasks and metrics
+      }
+    } catch (err) {
+      console.error("handleCreateRequest error:", err);
     }
+  };
 
-    if (filterAct === "ทั้งหมด") {
-      // Drill level: Activities inside selected WP
-      const counts = {};
-      filteredReports.forEach(s => {
-        counts[s.activityId] = (counts[s.activityId] || 0) + 1;
-      });
-      return Object.entries(counts).map(([id, value]) => {
-        const act = activities.find(a => a.id === id);
-        return { name: act ? act.name : id, value };
-      });
+  if (loading || !data) return <Layout><div style={{ padding: 40, textAlign: "center" }}>กำลังโหลดข้อมูลศูนย์ควบคุม...</div></Layout>;
+
+  // Filter items matching the chosen department
+  const filteredTasks = tasks.filter((t) => t.departmentId === filterDept);
+  const activeTasks = filteredTasks.filter((t) => t.status !== "Completed");
+  const completedTasks = filteredTasks.filter((t) => t.status === "Completed");
+
+  const activeInsights = data.activeInsights.filter(insight => insight.kpiDef.departmentId === filterDept);
+  
+  const currentDeptCfg = DEPT_CONFIGS[filterDept];
+
+  // Retrieve matching KPI object from DB to render dynamically
+  const getDynamicKpiValue = (label) => {
+    if (label === "Waste Overflow Rate") {
+      return data.latestKpis?.["kpi-clean-waste"] || { value: 65, status: "Normal" };
     }
-
-    // Drill level: Zone distribution for selected Activity
-    const counts = {};
-    filteredReports.forEach(s => {
-      counts[s.zone] = (counts[s.zone] || 0) + 1;
-    });
-    return Object.entries(counts).map(([name, value]) => ({ name, value }));
-  }, [filteredReports, filterDept, filterWp, filterAct, departments, workPackages, activities]);
-
-  const dynamicChartTitle = useMemo(() => {
-    if (filterDept === "ทั้งหมด") return "สัดส่วนแบ่งตามฝ่าย";
-    if (filterWp === "ทั้งหมด") return `รายงานแบ่งตามงานหลัก (WP) - ${departments.find(d => d.id === filterDept)?.name}`;
-    if (filterAct === "ทั้งหมด") return `รายงานแบ่งตามกิจกรรมย่อย - ${workPackages.find(w => w.id === filterWp)?.name}`;
-    return `รายงานในแต่ละพื้นที่โซน - ${activities.find(a => a.id === filterAct)?.name}`;
-  }, [filterDept, filterWp, filterAct, departments, workPackages, activities]);
-
-  function handleReset() {
-    if (confirm("ต้องการรีเซ็ตข้อมูลทั้งหมดกลับเป็นค่าเริ่มต้นตัวอย่าง (Seed Data) หรือไม่?")) {
-      const seeded = resetToSeed();
-      setReports(seeded);
-      setFilterDept("ทั้งหมด");
-      setFilterWp("ทั้งหมด");
-      setFilterAct("ทั้งหมด");
-      setFilterStatus("ทั้งหมด");
+    if (label === "Traffic Queue Time") {
+      return data.latestKpis?.["kpi-security-traffic"] || { value: 12, status: "Normal" };
     }
-  }
-
-  function handleDelete(id) {
-    if (confirm("ต้องการลบรายงานนี้หรือไม่?")) {
-      deleteSubmission(id);
-      setReports(prev => prev.filter(r => r.id !== id));
+    if (label === "Motor Operating Temp") {
+      return data.latestKpis?.["kpi-maint-temp"] || { value: 72, status: "Normal" };
     }
-  }
-
-  function renderAnswersSummary(answers) {
-    if (!answers || answers.length === 0) return "-";
-    return answers
-      .map((a) => {
-        let valStr = "";
-        if (Array.isArray(a.value)) {
-          valStr = a.value.length === 0 ? "ไม่มี" : a.value.join(", ");
-        } else if (a.value === "yes") {
-          valStr = "ปกติ/ใช่";
-        } else if (a.value === "no") {
-          valStr = "พบปัญหา/ไม่ใช่";
-        } else if (a.value && String(a.value).startsWith("data:image/png;base64")) {
-          valStr = "✍️ เซ็นชื่อแล้ว";
-        } else if (a.value && String(a.value).startsWith("data:image")) {
-          valStr = "🖼️ ภาพถ่าย";
-        } else if (a.value && String(a.value).includes("mock_photo")) {
-          valStr = "📷 ภาพตัวอย่าง";
-        } else {
-          valStr = String(a.value);
-        }
-        return `${a.label}: ${valStr}`;
-      })
-      .join(" | ");
-  }
-
-  if (!ready) return null;
+    return { value: null, status: "Normal" };
+  };
 
   return (
     <Layout>
-      <div className="page-head">
-        <p className="eyebrow">หัวหน้างาน</p>
-        <h1>Dashboard ติดตามสถานะปฏิบัติงาน</h1>
-        <p>รายงานข้อมูลสรุปแยกตามโครงสร้างฝ่ายงานและกิจกรรมย่อยแบบเรียลไทม์</p>
-      </div>
+      {/* ── HEADER ────────────────────────────────────────────────────────── */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 28, flexWrap: "wrap", gap: 16 }}>
+        <div>
+          <p className="eyebrow" style={{ color: "var(--blue)", fontWeight: 700 }}>DEPARTMENT COMMAND CENTER</p>
+          <h1 style={{ fontSize: "2.4rem", margin: "8px 0" }}>📊 ศูนย์ควบคุมงานระดับปฏิบัติการ</h1>
+          <p style={{ opacity: 0.8, fontSize: "1rem" }}>แดชบอร์ดจัดการ ควบคุม และติดตามสถานะความคล่องตัวของแต่ละฝ่ายงาน</p>
+        </div>
 
-      {/* KPI summaries based on current filters */}
-      <div className="grid grid-3">
-        <div className="card kpi">
-          <div className="num">{stats.total}</div>
-          <div className="label">จำนวนรายงาน (ที่ถูกกรอง)</div>
-        </div>
-        <div className="card kpi">
-          <div className="num" style={{ color: "var(--gold)" }}>
-            {stats.watchOpen}
-          </div>
-          <div className="label">ต้องติดตาม</div>
-        </div>
-        <div className="card kpi">
-          <div className="num" style={{ color: "var(--red)" }}>
-            {stats.urgentOpen}
-          </div>
-          <div className="label">เร่งด่วน</div>
+        {/* Department Switcher Dropdown */}
+        <div style={{ background: "#fff", padding: "10px 16px", borderRadius: 8, border: "1px solid var(--line)", display: "flex", alignItems: "center", gap: 12 }}>
+          <strong style={{ fontSize: "0.85rem", color: "var(--ink-soft)" }}>เลือกแผนกดูแล:</strong>
+          <select 
+            value={filterDept} 
+            onChange={(e) => setFilterDept(e.target.value)}
+            style={{ padding: "6px 12px", borderRadius: 4, border: "1px solid var(--blue)", fontWeight: 700, color: "var(--blue)" }}
+          >
+            <option value="d-clean">🧹 ฝ่ายรักษาความสะอาด</option>
+            <option value="d-security">🛡️ ฝ่ายรักษาความปลอดภัย</option>
+            <option value="d-maintenance">🔧 ฝ่ายซ่อมบำรุง</option>
+          </select>
         </div>
       </div>
 
-      {/* Filter panel card */}
-      <div className="card" style={{ marginTop: 20, padding: 18 }}>
-        <h4 style={{ margin: "0 0 12px 0", fontFamily: "var(--font-display)" }}>🎯 คัดกรองและสืบค้นเชิงโครงสร้าง</h4>
-        <div className="filters-grid">
-          <div className="field-compact">
-            <label>เลือกฝ่ายงาน</label>
-            <select value={filterDept} onChange={handleDeptChange}>
-              <option value="ทั้งหมด">ทั้งหมด</option>
-              {departments.map(d => (
-                <option key={d.id} value={d.id}>{d.name}</option>
-              ))}
-            </select>
-          </div>
+      {/* Action Dialog Notification */}
+      {actionMessage && (
+        <div style={{
+          position: "fixed", top: 24, right: 24, zIndex: 999,
+          background: "#3b82f6", color: "#fff", padding: "12px 20px",
+          borderRadius: 8, boxShadow: "0 4px 20px rgba(0,0,0,0.15)",
+          fontWeight: 700
+        }}>
+          {actionMessage}
+        </div>
+      )}
 
-          <div className="field-compact">
-            <label>เลือกงานหลัก (WP)</label>
-            <select 
-              value={filterWp} 
-              onChange={handleWpChange}
-              disabled={filterDept === "ทั้งหมด"}
+      {/* ── AI DEPARTMENT INSIGHT (Supervisor Requirement) ────────────────── */}
+      <div className="card" style={{ background: "#eff6ff", border: "1px solid #bfdbfe", padding: "20px 24px", marginBottom: 32 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+          <span style={{ fontSize: "1.3rem" }}>🧠</span>
+          <strong style={{ color: "#1d4ed8", fontSize: "0.85rem", letterSpacing: "1.5px" }}>AI COGNITIVE DEPARTMENT INSIGHT</strong>
+        </div>
+        <p style={{ margin: 0, fontSize: "1.05rem", color: "#1e3a8a", fontWeight: 600, lineHeight: 1.5 }}>
+          "{currentDeptCfg.aiInsight}"
+        </p>
+      </div>
+
+      {/* ── DEPARTMENT-SPECIFIC KPI METRICS ───────────────────────────────── */}
+      <h2 style={{ fontSize: "1.4rem", color: "var(--dark)", marginBottom: 16 }}>📈 ดัชนีชี้วัดผลการทำงาน ({currentDeptCfg.label})</h2>
+      <div style={{ display: "grid", gridTemplateColumns: `repeat(${currentDeptCfg.kpis.length}, 1fr)`, gap: 16, marginBottom: 32 }}>
+        {currentDeptCfg.kpis.map((kpi, idx) => {
+          const kpiObj = getDynamicKpiValue(kpi.label);
+          const rawVal = kpiObj ? kpiObj.value : null;
+          const status = kpiObj ? kpiObj.status : "Normal";
+          const displayVal = rawVal !== null && rawVal !== undefined ? kpi.value(rawVal, data.currentScenario) : kpi.value(null, data.currentScenario);
+          
+          // Color coding depending on warning & critical statuses
+          const isCritical = status === "Critical";
+          const isWarning = status === "Warning";
+          const borderColor = isCritical ? "#ef4444" : isWarning ? "#f59e0b" : "#10b981";
+          const bgColor = isCritical ? "#fef2f2" : isWarning ? "#fffbeb" : "#f0fdf4";
+          
+          return (
+            <div key={idx} className="card" style={{ borderTop: `4px solid ${borderColor}`, background: bgColor, transition: "all 0.3s ease" }}>
+              <div style={{ fontSize: "0.75rem", color: "var(--ink-soft)", fontWeight: 700, textTransform: "uppercase" }}>{kpi.label}</div>
+              <div style={{ fontSize: "1.8rem", fontWeight: 800, color: isCritical ? "#dc2626" : isWarning ? "#b45309" : "var(--dark)", marginTop: 8 }}>{displayVal}</div>
+              {kpiObj?.detail && (
+                <div style={{ fontSize: "0.85rem", fontWeight: 700, color: isCritical ? "#b91c1c" : isWarning ? "#a16207" : "#047857", marginTop: 4, marginBottom: 8 }}>
+                  📍 {kpiObj.detail}
+                </div>
+              )}
+              <div style={{ fontSize: "0.75rem", color: "var(--ink-soft)", marginTop: 6, borderTop: "1px solid rgba(0,0,0,0.05)", paddingTop: 6 }}>
+                {kpi.desc} · <strong style={{ color: borderColor }}>{status}</strong>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ── TEAM PERFORMANCE & SUPERVISOR ACTIONS ────────────────────────── */}
+      <div className="grid grid-3" style={{ marginBottom: 32, gap: 20 }}>
+        {/* Statistics Card */}
+        <div className="card" style={{ display: "flex", flexDirection: "column", justifySelf: "stretch" }}>
+          <h3 style={{ marginTop: 0, fontSize: "1.1rem", borderBottom: "1px solid var(--line)", paddingBottom: 10 }}>👥 สถิตการทำงานทีมวันนี้</h3>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span style={{ color: "var(--ink-soft)" }}>ใบงานทั้งหมด:</span>
+              <strong style={{ color: "var(--dark)" }}>{filteredTasks.length} รายการ</strong>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span style={{ color: "var(--ink-soft)" }}>งานที่รอดำเนินการ:</span>
+              <strong style={{ color: "var(--gold)" }}>{activeTasks.length} รายการ</strong>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span style={{ color: "var(--ink-soft)" }}>SLA Compliance %:</span>
+              <strong style={{ color: "#10b981" }}>{data.sla.compliance}%</strong>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span style={{ color: "var(--ink-soft)" }}>เวลาการแก้ไขเฉลี่ย:</span>
+              <strong style={{ color: "var(--blue)" }}>{data.sla.avgResolution} นาที</strong>
+            </div>
+          </div>
+        </div>
+
+        {/* Action Panel Card (Supervisor Actions) */}
+        <div className="card" style={{ gridColumn: "span 2", display: "flex", flexDirection: "column" }}>
+          <h3 style={{ marginTop: 0, fontSize: "1.1rem", borderBottom: "1px solid var(--line)", paddingBottom: 10 }}>⚡ แผงจัดการและควบคุมปฏิบัติการ (Supervisor Actions)</h3>
+          <div className="grid grid-2" style={{ gap: 12, marginTop: 12, flex: 1 }}>
+            <button 
+              className="btn" 
+              style={{ background: "#4f46e5", color: "#fff", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "16px 12px", border: "none" }}
+              onClick={() => triggerAction("📤 มอบหมายงานใบสั่งส่งตรงหา Staff หน้างานแล้ว")}
             >
-              <option value="ทั้งหมด">ทั้งหมด</option>
-              {availableWPs.map(w => (
-                <option key={w.id} value={w.id}>{w.name}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="field-compact">
-            <label>เลือกกิจกรรมย่อย</label>
-            <select 
-              value={filterAct} 
-              onChange={(e) => setFilterAct(e.target.value)}
-              disabled={filterWp === "ทั้งหมด"}
+              <span style={{ fontSize: "1.5rem", marginBottom: 6 }}>📋</span>
+              <strong>Assign Task</strong>
+              <span style={{ fontSize: "0.7rem", opacity: 0.8 }}>จ่ายงานเร่งด่วนสู่เจ้าหน้าที่ปฏิบัติการ</span>
+            </button>
+            
+            <button 
+              className="btn" 
+              style={{ background: "#3b82f6", color: "#fff", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "16px 12px", border: "none" }}
+              onClick={() => triggerAction("🔄 ปรับเปลี่ยนผู้รับผิดชอบงาน เรียบร้อยแล้ว")}
             >
-              <option value="ทั้งหมด">ทั้งหมด</option>
-              {availableActs.map(a => (
-                <option key={a.id} value={a.id}>{a.name}</option>
-              ))}
-            </select>
-          </div>
+              <span style={{ fontSize: "1.5rem", marginBottom: 6 }}>👥</span>
+              <strong>Reassign Task</strong>
+              <span style={{ fontSize: "0.7rem", opacity: 0.8 }}>สลับกะหรือส่งต่อใบสั่งให้อีกทีม</span>
+            </button>
 
-          <div className="field-compact">
-            <label>สถานะประเมิน</label>
-            <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
-              <option value="ทั้งหมด">ทั้งหมด</option>
-              <option value="ปกติ">ปกติ</option>
-              <option value="ต้องติดตาม">ต้องติดตาม</option>
-              <option value="เร่งด่วน">เร่งด่วน</option>
-            </select>
-          </div>
-        </div>
-      </div>
+            <button 
+              className="btn" 
+              style={{ background: "#d97706", color: "#fff", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "16px 12px", border: "none" }}
+              onClick={() => triggerAction("🔥 ยกระดับรายงานแจ้งความเสียหาย (Escalated)")}
+            >
+              <span style={{ fontSize: "1.5rem", marginBottom: 6 }}>🚨</span>
+              <strong>Escalate Issue</strong>
+              <span style={{ fontSize: "0.7rem", opacity: 0.8 }}>ส่งเคสปัญหาข้ามฝ่าย/รายงานด่วนที่สุด</span>
+            </button>
 
-      {/* Recharts graph panel */}
-      <div className="grid grid-2" style={{ marginTop: 20 }}>
-        <div className="card">
-          <h3 style={{ marginTop: 0, fontFamily: "var(--font-display)", fontSize: "1.1rem" }}>{dynamicChartTitle}</h3>
-          <div style={{ width: "100%", height: 260 }}>
-            {dynamicChartData.length === 0 ? (
-              <p className="empty-note">ไม่มีข้อมูลที่จะแสดงผลกราฟ</p>
-            ) : (
-              <ResponsiveContainer>
-                <BarChart data={dynamicChartData} margin={{ left: -20, bottom: 20 }}>
-                  <XAxis
-                    dataKey="name"
-                    tick={{ fontSize: 9 }}
-                    interval={0}
-                    angle={-15}
-                    textAnchor="end"
-                    height={50}
-                  />
-                  <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-                  <Tooltip />
-                  <Bar dataKey="value" fill="#3f7d5c" radius={[3, 3, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </div>
-
-        <div className="card">
-          <h3 style={{ marginTop: 0, fontFamily: "var(--font-display)", fontSize: "1.1rem" }}>สัดส่วนตามสถานะ</h3>
-          <div style={{ width: "100%", height: 260 }}>
-            {stats.statusChart.filter(x => x.value > 0).length === 0 ? (
-              <p className="empty-note">ไม่มีข้อมูลสัดส่วนสถานะ</p>
-            ) : (
-              <ResponsiveContainer>
-                <PieChart>
-                  <Pie
-                    data={stats.statusChart.filter(x => x.value > 0)}
-                    dataKey="value"
-                    nameKey="name"
-                    innerRadius={55}
-                    outerRadius={90}
-                    paddingAngle={2}
-                  >
-                    {stats.statusChart.filter(x => x.value > 0).map((entry) => (
-                      <Cell key={entry.name} fill={STATUS_COLORS[entry.name]} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
-            )}
+            <button 
+              className="btn" 
+              style={{ background: "#059669", color: "#fff", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "16px 12px", border: "none" }}
+              onClick={() => setShowRequestModal(true)}
+            >
+              <span style={{ fontSize: "1.5rem", marginBottom: 6 }}>👑</span>
+              <strong>Request Approval</strong>
+              <span style={{ fontSize: "0.7rem", opacity: 0.8 }}>ขออนุมัติจัดงบหรือรอบเสริมฉุกเฉิน</span>
+            </button>
           </div>
         </div>
       </div>
 
-      {/* Ledger list of filtered submissions */}
-      <div className="card" style={{ marginTop: 20 }}>
-        <div className="toolbar">
-          <h3 style={{ margin: 0, fontFamily: "var(--font-display)" }}>
-            รายการบันทึกรายงานล่าสุด ({filteredReports.length} รายการ)
-          </h3>
-          <button className="btn secondary small-btn" onClick={handleReset} type="button">
-            รีเซ็ตข้อมูลตัวอย่างทั้งหมด
-          </button>
+      {/* ── ACTIVE ALERTS ─────────────────────────────────────────────────── */}
+      {activeInsights.length > 0 && (
+        <div style={{ marginBottom: 32 }}>
+          <h2 style={{ marginBottom: 16, fontSize: "1.3rem", color: "var(--dark)" }}>🚨 แจ้งเตือนวิกฤตของฝ่ายงาน (Active Department Alerts)</h2>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {activeInsights.map((insight) => (
+              <div key={insight.id} className="card" style={{
+                borderLeft: `5px solid ${insight.alert?.severity === "Critical" ? "var(--red)" : "var(--gold)"}`,
+                padding: "16px 20px",
+                display: "flex", justifyContent: "space-between", alignItems: "center"
+              }}>
+                <div>
+                  <span style={{
+                    fontSize: "0.75rem", fontWeight: 700,
+                    color: insight.alert?.severity === "Critical" ? "#dc2626" : "#b45309",
+                    background: insight.alert?.severity === "Critical" ? "#fef2f2" : "#fffbeb",
+                    padding: "2px 8px", borderRadius: 99
+                  }}>
+                    {insight.alert?.severity}
+                  </span>
+                  <p style={{ margin: "6px 0 0 0", fontWeight: 600, color: "var(--dark)", fontSize: "1.05rem" }}>{insight.whatHappened}</p>
+                  <p style={{ margin: "4px 0 0 0", fontSize: "0.82rem", color: "var(--ink-soft)" }}>
+                    Confidence: {insight.confidenceScore}% · {insight.whyNow}
+                  </p>
+                </div>
+                <a href="/executive" style={{ padding: "8px 16px", background: "var(--blue)", color: "#fff", borderRadius: 6, textDecoration: "none", fontWeight: 700, fontSize: "0.85rem", whiteSpace: "nowrap" }}>
+                  ดูทางเลือกสั่งการ →
+                </a>
+              </div>
+            ))}
+          </div>
         </div>
+      )}
 
-        {filteredReports.length === 0 ? (
-          <p className="empty-note">ไม่พบรายการรายงานที่ตรงตามตัวเลือกคัดกรอง</p>
-        ) : (
-          <table className="ledger-table font-compact">
-            <thead>
-              <tr>
-                <th>วันที่</th>
-                <th>ฝ่าย / งานหลัก / กิจกรรม</th>
-                <th>ผู้บันทึก</th>
-                <th>พื้นที่</th>
-                <th>ผลการประเมินย่อย</th>
-                <th>สถานะ</th>
-                <th>จัดการ</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredReports.map((r) => {
-                const dept = departments.find(d => d.id === r.departmentId);
-                const wp = workPackages.find(w => w.id === r.workPackageId);
-                const act = activities.find(a => a.id === r.activityId);
-                
-                return (
-                  <tr key={r.id}>
-                    <td style={{ whiteSpace: "nowrap" }}>{r.date}</td>
-                    <td>
-                      <div style={{ fontWeight: 600, fontSize: "0.85rem" }}>
-                        {dept?.icon} {dept?.name || r.departmentId}
-                      </div>
-                      <div className="table-subtext">{wp?.name} ➔ {act?.name}</div>
-                    </td>
-                    <td style={{ whiteSpace: "nowrap" }}>{r.submittedBy}</td>
-                    <td style={{ whiteSpace: "nowrap" }}>{r.zone}</td>
-                    <td className="ans-summary">{renderAnswersSummary(r.answers)}</td>
-                    <td>
-                      <StatusStamp status={r.derivedStatus} />
-                    </td>
-                    <td>
-                      <button 
-                        className="icon-btn" 
-                        onClick={() => handleDelete(r.id)} 
-                        title="ลบรายงาน"
-                      >
-                        🗑️
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
+      {/* ── TASKS CURRENT STATUS ──────────────────────────────────────────── */}
+      <h2 style={{ marginBottom: 16, fontSize: "1.3rem", color: "var(--dark)" }}>📋 ใบงานปฏิบัติการทั้งหมดของฝ่าย</h2>
+      {filteredTasks.length === 0 ? (
+        <div className="card" style={{ textAlign: "center", padding: "40px", color: "var(--ink-soft)" }}>
+          ไม่มีงานปฏิบัติงานสำหรับแผนกนี้ในกะปัจจุบัน
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {filteredTasks.map((task) => {
+            const statusColor = task.status === "Completed" ? "#10b981" : task.status === "In Progress" ? "#3b82f6" : "#f59e0b";
+            return (
+              <div key={task.id} className="card" style={{ padding: "14px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16 }}>
+                <div style={{ display: "flex", gap: 12, alignItems: "center", flex: 1 }}>
+                  <span style={{ fontSize: "1.5rem" }}>{currentDeptCfg.icon}</span>
+                  <div>
+                    <p style={{ margin: 0, fontWeight: 600, fontSize: "0.95rem", color: "var(--dark)" }}>{task.title}</p>
+                    <p style={{ margin: "2px 0 0 0", fontSize: "0.8rem", color: "var(--ink-soft)" }}>
+                      SLA: Response {task.responseSla} นาที / Resolution {task.resolutionSla} นาที · {new Date(task.createdAt).toLocaleTimeString("th-TH")}
+                    </p>
+                  </div>
+                </div>
+                <span style={{ padding: "4px 12px", background: statusColor + "20", color: statusColor, borderRadius: 99, fontWeight: 700, fontSize: "0.82rem", whiteSpace: "nowrap" }}>
+                  {task.status === "Completed" ? "✅ เสร็จสิ้น" : task.status === "In Progress" ? "🔄 กำลังทำ" : "⏳ รอคิว"}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
-      <style jsx global>{`
-        .filters-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-          gap: 16px;
-        }
-        .field-compact {
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-        }
-        .field-compact label {
-          font-size: 0.78rem;
-          font-weight: 600;
-          color: var(--ink-soft);
-        }
-        .field-compact select {
-          padding: 8px 10px;
-          border: 1px solid var(--line);
-          border-radius: var(--radius);
-          background: #fff;
-          font-size: 0.88rem;
-          color: var(--ink);
-        }
-        .field-compact select:disabled {
-          background: var(--paper);
-          cursor: not-allowed;
-          opacity: 0.6;
-        }
-        
-        .font-compact {
-          font-size: 0.85rem;
-        }
-        .table-subtext {
-          font-size: 0.72rem;
-          color: var(--ink-soft);
-          margin-top: 2px;
-        }
-        .ans-summary {
-          max-width: 380px;
-          font-size: 0.78rem;
-          color: var(--ink-soft);
-          line-height: 1.4;
-          word-break: break-word;
-        }
-      `}</style>
+      {/* ── MODAL: CREATE APPROVAL REQUEST ──────────────────────────────────── */}
+      {showRequestModal && (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(15,23,42,0.85)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <form onSubmit={handleCreateRequest} className="card" style={{ width: "100%", maxWidth: 480, position: "relative" }}>
+            <button type="button" style={{ position: "absolute", top: 16, right: 16, background: "none", border: "none", fontSize: "1.5rem", cursor: "pointer" }} onClick={() => setShowRequestModal(false)}>✖</button>
+            
+            <h2 style={{ marginTop: 0, marginBottom: 8, color: "var(--dark)" }}>📩 ส่งคำขออนุมัติพิเศษ (Request Executive Approval)</h2>
+            <p style={{ color: "var(--ink-soft)", marginBottom: 20, fontSize: "0.85rem" }}>
+              กรอกคำร้องของบประมาณฉุกเฉินหรือนโยบายพิเศษเพื่อส่งตรงไปยังบอร์ดอนุมัติของผู้บริหารสูงสุด
+            </p>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 20 }}>
+              <div>
+                <label style={{ display: "block", marginBottom: 6, fontWeight: 700, fontSize: "0.85rem" }}>หัวข้อคำเสนออนุมัติ (Request Title):</label>
+                <input 
+                  type="text" 
+                  required 
+                  placeholder="เช่น ขออนุมัติเหมาจ่ายรอบเก็บขยะเพิ่มเติม Zone C ฉุกเฉิน"
+                  value={reqTitle} 
+                  onChange={(e) => setReqTitle(e.target.value)}
+                  style={{ width: "100%", padding: "10px 12px", borderRadius: 6, border: "1px solid var(--line)" }} 
+                />
+              </div>
+
+              <div>
+                <label style={{ display: "block", marginBottom: 6, fontWeight: 700, fontSize: "0.85rem" }}>ประมาณการงบประมาณใช้สอย (Estimated Cost - บาท):</label>
+                <input 
+                  type="number" 
+                  required 
+                  placeholder="เช่น 15000"
+                  value={reqCost} 
+                  onChange={(e) => setReqCost(e.target.value)}
+                  style={{ width: "100%", padding: "10px 12px", borderRadius: 6, border: "1px solid var(--line)" }} 
+                />
+              </div>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 12 }}>
+              <button type="button" className="btn" style={{ background: "transparent", border: "1px solid var(--line)", color: "var(--ink)" }} onClick={() => setShowRequestModal(false)}>ยกเลิก</button>
+              <button type="submit" className="btn" style={{ background: "#059669", color: "#fff", border: "none" }}>ส่งขออนุมัติ</button>
+            </div>
+          </form>
+        </div>
+      )}
     </Layout>
   );
 }

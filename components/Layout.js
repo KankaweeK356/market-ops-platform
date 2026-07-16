@@ -3,11 +3,11 @@ import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
 
 const NAV_ITEMS = [
-  { href: "/", label: "หน้าแรก", roles: ["supervisor", "executive"] },
-  { href: "/report", label: "บันทึกงานปฏิบัติการ", roles: ["staff", "supervisor"] },
-  { href: "/dashboard", label: "Dashboard หัวหน้างาน", roles: ["supervisor", "executive"] },
-  { href: "/executive", label: "แผงผู้บริหาร (AI)", roles: ["supervisor", "executive"] },
-  { href: "/admin", label: "จัดการระบบ (Admin)", roles: ["supervisor"] },
+  { href: "/report",     label: "📝 Operations Workspace",       roles: ["staff"] },
+  { href: "/tasks",      label: "📋 ใบงานของฉัน",                 roles: ["staff"] },
+  { href: "/",           label: "🏠 เลือกบทบาท",                 roles: ["supervisor", "executive"] },
+  { href: "/dashboard",  label: "📊 Department Command Center",   roles: ["supervisor"] },
+  { href: "/executive",  label: "🧠 Market Intelligence Center",  roles: ["executive", "supervisor"] },
 ];
 
 export default function Layout({ children }) {
@@ -29,8 +29,10 @@ export default function Layout({ children }) {
     // Redirect based on role
     if (role === "staff") {
       router.push("/report");
+    } else if (role === "executive") {
+      router.push("/executive");
     } else {
-      router.push("/");
+      router.push("/dashboard");
     }
   }
 

@@ -1,941 +1,512 @@
-import { useState, useEffect, useRef } from "react";
+// pages/report.js — 4-Step Process-Based Wizard
+import { useState } from "react";
 import Layout from "../components/Layout";
-import StatusStamp from "../components/StatusStamp";
-import { ZONES, STAFF_NAMES, statusMeta } from "../lib/constants";
-import { 
-  getDepartments, 
-  getWorkPackages, 
-  getActivities, 
-  getFormTemplate, 
-  addReport, 
-  deriveSubmissionStatus 
-} from "../lib/storage";
+import { ZONES, STAFF_NAMES, DEPARTMENTS, WORK_PROCESSES, ACTIVITIES } from "../lib/constants";
 
-const today = () => new Date().toISOString().slice(0, 10);
+// ── STEP DEFINITIONS ─────────────────────────────────────────────────────────
+const STEPS = [
+  { id: 1, label: "เลือกฝ่าย",         short: "Department" },
+  { id: 2, label: "เลือก Work Process", short: "Work Process" },
+  { id: 3, label: "เลือก Activity",     short: "Activity" },
+  { id: 4, label: "กรอกแบบฟอร์ม",      short: "Form" },
+];
 
+// ── KPI STATUS HELPER ─────────────────────────────────────────────────────────
+function getKpiStatus(value, activity) {
+  if (!activity?.kpiId || value === "") return null;
+  const num = parseFloat(value);
+  if (isNaN(num)) return null;
+  if (num >= activity.kpiCritical) return "Critical";
+  if (num >= activity.kpiWarning)  return "Warning";
+  return "Normal";
+}
+
+// ── BREADCRUMB COMPONENT ──────────────────────────────────────────────────────
+function WizardBreadcrumb({ currentStep, dept, wp, activity }) {
+  const labels = [
+    dept?.name   ?? "ฝ่าย",
+    wp?.name     ?? "Work Process",
+    activity?.name ?? "Activity",
+    "แบบฟอร์ม",
+  ];
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 28, fontSize: "0.88rem" }}>
+      {STEPS.map((step, i) => {
+        const isActive  = step.id === currentStep;
+        const isDone    = step.id < currentStep;
+        return (
+          <div key={step.id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <div style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "5px 14px", borderRadius: 99,
+              background: isActive ? "#4f46e5" : isDone ? "#e0e7ff" : "#f1f5f9",
+              color:      isActive ? "#fff"    : isDone ? "#4f46e5" : "#94a3b8",
+              fontWeight: isActive ? 700       : 600,
+              transition: "all 0.2s ease",
+            }}>
+              <span style={{
+                width: 20, height: 20, borderRadius: "50%",
+                background: isActive ? "rgba(255,255,255,0.25)" : isDone ? "#4f46e5" : "#cbd5e1",
+                color: isDone ? "#fff" : "inherit",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: "0.75rem", fontWeight: 800,
+              }}>
+                {isDone ? "✓" : step.id}
+              </span>
+              <span style={{ maxWidth: 140, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {isDone && labels[i] ? labels[i] : step.short}
+              </span>
+            </div>
+            {i < 3 && <span style={{ color: "#cbd5e1", fontSize: "1rem" }}>›</span>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── SELECTION CARD GRID ──────────────────────────────────────────────────────
+function SelectionGrid({ items, onSelect, columns = 3, selected = null }) {
+  return (
+    <div style={{
+      display: "grid",
+      gridTemplateColumns: `repeat(${columns}, 1fr)`,
+      gap: 16,
+    }}>
+      {items.map((item) => {
+        const isSelected = selected && selected.id === item.id;
+        return (
+          <button
+            key={item.id}
+            onClick={() => onSelect(item)}
+            style={{
+              background: isSelected ? "#eef2ff" : "#fff",
+              border: `2px solid ${isSelected ? "#4f46e5" : "var(--line)"}`,
+              borderRadius: 14, padding: "28px 20px",
+              cursor: "pointer", textAlign: "center",
+              transition: "all 0.2s ease",
+              display: "flex", flexDirection: "column",
+              alignItems: "center", gap: 10,
+              boxShadow: isSelected ? "0 0 0 3px rgba(79,70,229,0.15)" : "none",
+            }}
+            onMouseOver={(e) => {
+              if (!isSelected) {
+                e.currentTarget.style.borderColor = "#818cf8";
+                e.currentTarget.style.boxShadow = "0 4px 20px rgba(0,0,0,0.07)";
+              }
+            }}
+            onMouseOut={(e) => {
+              if (!isSelected) {
+                e.currentTarget.style.borderColor = "var(--line)";
+                e.currentTarget.style.boxShadow = "none";
+              }
+            }}
+          >
+            {item.icon && <span style={{ fontSize: "2.4rem" }}>{item.icon}</span>}
+            <strong style={{ fontSize: "0.97rem", color: "var(--dark)", lineHeight: 1.3 }}>{item.name}</strong>
+            {item.description && (
+              <p style={{ fontSize: "0.78rem", color: "var(--ink-soft)", margin: 0, lineHeight: 1.4 }}>{item.description}</p>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── MAIN PAGE ─────────────────────────────────────────────────────────────────
 export default function ReportPage() {
-  const [departments, setDepartments] = useState([]);
-  const [workPackages, setWorkPackages] = useState([]);
-  const [activities, setActivities] = useState([]);
-
   // Wizard state
-  const [step, setStep] = useState(1); // 1: Dept, 2: WP, 3: Activity, 4: Form
-  const [selectedDept, setSelectedDept] = useState(null);
-  const [selectedWP, setSelectedWP] = useState(null);
-  const [selectedAct, setSelectedAct] = useState(null);
-  const [template, setTemplate] = useState(null);
+  const [step, setStep] = useState(1);
+  const [selectedDept,     setSelectedDept]     = useState(null);
+  const [selectedWP,       setSelectedWP]       = useState(null);
+  const [selectedActivity, setSelectedActivity] = useState(null);
 
-  // Form input state
-  const [metadata, setMetadata] = useState({
-    date: today(),
-    staffName: STAFF_NAMES[0],
-    zone: ZONES[0],
-  });
-  const [answers, setAnswers] = useState({}); // { questionId: value }
-  const [savedReport, setSavedReport] = useState(null);
-  const [error, setError] = useState("");
+  // Form state
+  const [zone,      setZone]      = useState(ZONES[0]);
+  const [staffName, setStaffName] = useState(STAFF_NAMES[0]);
+  const [kpiValue,  setKpiValue]  = useState("");
+  const [checklist, setChecklist] = useState({});
+  const [note,      setNote]      = useState("");
 
-  useEffect(() => {
-    setDepartments(getDepartments());
-    setWorkPackages(getWorkPackages());
-    setActivities(getActivities());
-  }, []);
+  // Submit state
+  const [submitting, setSubmitting] = useState(false);
+  const [result,     setResult]     = useState(null);
 
-  // Filter lists based on selections
-  const filteredWPs = workPackages.filter(wp => wp.departmentId === selectedDept?.id);
-  const filteredActs = activities.filter(act => act.workPackageId === selectedWP?.id);
-
-  function handleSelectDept(dept) {
-    setSelectedDept(dept);
-    setSelectedWP(null);
-    setSelectedAct(null);
-    setStep(2);
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  function toggleChecklist(item) {
+    setChecklist((prev) => ({ ...prev, [item]: !prev[item] }));
   }
 
-  function handleSelectWP(wp) {
-    setSelectedWP(wp);
-    setSelectedAct(null);
-    setStep(3);
+  function resetAll() {
+    setStep(1); setSelectedDept(null); setSelectedWP(null); setSelectedActivity(null);
+    setKpiValue(""); setChecklist({}); setNote(""); setResult(null);
   }
 
-  function handleSelectAct(act) {
-    setSelectedAct(act);
-    const tmpl = getFormTemplate(act.id);
-    setTemplate(tmpl);
-    
-    // Initialize empty answers state
-    const initialAnswers = {};
-    tmpl.questions.forEach(q => {
-      if (q.type === "checkbox_group") {
-        initialAnswers[q.id] = [];
-      } else if (q.type === "yes_no") {
-        initialAnswers[q.id] = "";
-      } else {
-        initialAnswers[q.id] = "";
-      }
-    });
-    setAnswers(initialAnswers);
-    setSavedReport(null);
-    setError("");
-    setStep(4);
+  // Back: drop one step and clear downstream selections
+  function goBack() {
+    if (step === 2) { setSelectedDept(null); setSelectedWP(null); setStep(1); }
+    if (step === 3) { setSelectedWP(null); setSelectedActivity(null); setStep(2); }
+    if (step === 4) { setSelectedActivity(null); setKpiValue(""); setChecklist({}); setStep(3); }
   }
 
-  function handleAnswerChange(questionId, value) {
-    setAnswers(prev => ({
-      ...prev,
-      [questionId]: value
-    }));
-    setSavedReport(null);
-  }
+  // ── Derived Data ───────────────────────────────────────────────────────────
+  const availableWPs         = WORK_PROCESSES.filter(wp => wp.departmentId === selectedDept?.id);
+  const availableActivities  = ACTIVITIES.filter(a => a.workProcessId === selectedWP?.id);
+  const kpiStatus            = getKpiStatus(kpiValue, selectedActivity);
+  const checklistItems       = selectedActivity?.checklist ?? [];
+  const completedCount       = checklistItems.filter(it => checklist[it]).length;
+  const completionRate       = checklistItems.length > 0
+    ? Math.round((completedCount / checklistItems.length) * 100)
+    : 0;
 
-  function handleCheckboxChange(questionId, option, checked) {
-    const current = answers[questionId] || [];
-    let updated;
-    if (checked) {
-      updated = [...current, option];
-    } else {
-      updated = current.filter(o => o !== option);
-    }
-    handleAnswerChange(questionId, updated);
-  }
-
-  function handleSubmit(e) {
+  // ── Submit ─────────────────────────────────────────────────────────────────
+  async function handleSubmit(e) {
     e.preventDefault();
-    setError("");
+    if (!selectedActivity) return;
+    // If activity has KPI, require kpiValue
+    if (selectedActivity.kpiId && kpiValue === "") return;
 
-    // Validate required questions
-    for (const q of template.questions) {
-      const val = answers[q.id];
-      if (q.required) {
-        if (q.type === "checkbox_group" && (!val || val.length === 0)) {
-          setError(`กรุณากรอกข้อมูล: ${q.label}`);
-          return;
-        }
-        if (q.type !== "checkbox_group" && (val === undefined || val === null || val === "")) {
-          setError(`กรุณากรอกข้อมูล: ${q.label}`);
-          return;
-        }
-      }
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/forms/${selectedDept.id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          submittedBy: staffName,
+          zoneId: zone,
+          workProcessId: selectedWP.id,
+          activityId: selectedActivity.id,
+          kpiValue: selectedActivity.kpiId ? parseFloat(kpiValue) : null,
+          details: {
+            workProcess:    selectedWP.name,
+            activity:       selectedActivity.name,
+            kpiValue:       selectedActivity.kpiId ? parseFloat(kpiValue) : null,
+            checklist,
+            completionRate,
+            note,
+          },
+        }),
+      });
+      const data = await res.json();
+      setResult({ success: res.ok, message: data.message, kpiStatus: data.kpiStatus, alertTriggered: data.alertTriggered });
+    } catch (err) {
+      setResult({ success: false, message: "เกิดข้อผิดพลาด: " + err.message });
+    } finally {
+      setSubmitting(false);
     }
-
-    // Format answers array as { questionId, label, value }
-    const answersList = template.questions.map(q => ({
-      questionId: q.id,
-      label: q.label,
-      value: answers[q.id]
-    }));
-
-    // Auto-calculate status from flagIf rules
-    const derivedStatus = deriveSubmissionStatus(answersList, template.questions);
-
-    const submission = {
-      formTemplateId: template.id,
-      activityId: selectedAct.id,
-      workPackageId: selectedWP.id,
-      departmentId: selectedDept.id,
-      submittedBy: metadata.staffName,
-      submittedAt: new Date().toISOString(),
-      date: metadata.date,
-      zone: metadata.zone,
-      answers: answersList,
-      derivedStatus
-    };
-
-    const record = addReport(submission);
-    setSavedReport(record);
-    
-    // Clear form answers but keep metadata
-    const resetAnswers = {};
-    template.questions.forEach(q => {
-      resetAnswers[q.id] = q.type === "checkbox_group" ? [] : "";
-    });
-    setAnswers(resetAnswers);
   }
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // RESULT VIEW
+  // ══════════════════════════════════════════════════════════════════════════
+  if (result) {
+    const isAlert = result.kpiStatus === "Critical" || result.kpiStatus === "Warning";
+    return (
+      <Layout>
+        <div style={{ maxWidth: 580, margin: "60px auto", textAlign: "center" }}>
+          <div style={{
+            background: isAlert ? "#fef2f2" : "#f0fdf4",
+            border: `2px solid ${isAlert ? "#fca5a5" : "#86efac"}`,
+            borderRadius: 20, padding: "48px 40px",
+          }}>
+            <div style={{ fontSize: "4rem", marginBottom: 16 }}>{isAlert ? "🚨" : "✅"}</div>
+            <h2 style={{ color: isAlert ? "#dc2626" : "#16a34a", marginTop: 0, fontSize: "1.6rem" }}>
+              {isAlert ? `พบสถานะ ${result.kpiStatus}!` : "บันทึกข้อมูลสำเร็จ"}
+            </h2>
+
+            {/* Journey Summary */}
+            <div style={{ background: "rgba(0,0,0,0.04)", borderRadius: 10, padding: "14px 18px", marginBottom: 16, textAlign: "left", fontSize: "0.85rem", color: "var(--ink-soft)" }}>
+              <div style={{ marginBottom: 4 }}><strong style={{ color: "var(--dark)" }}>ฝ่าย:</strong> {selectedDept?.icon} {selectedDept?.name}</div>
+              <div style={{ marginBottom: 4 }}><strong style={{ color: "var(--dark)" }}>Work Process:</strong> {selectedWP?.icon} {selectedWP?.name}</div>
+              <div style={{ marginBottom: 4 }}><strong style={{ color: "var(--dark)" }}>Activity:</strong> {selectedActivity?.name}</div>
+              <div><strong style={{ color: "var(--dark)" }}>Checklist Completion:</strong> {completedCount}/{checklistItems.length} ({completionRate}%)</div>
+            </div>
+
+            <p style={{ color: "#374151", fontSize: "1.05rem", lineHeight: 1.7, marginBottom: 20 }}>{result.message}</p>
+
+            {result.alertTriggered && (
+              <div style={{
+                background: "#fff7ed", border: "1px solid #fed7aa",
+                borderRadius: 10, padding: "12px 18px", marginBottom: 20,
+                fontSize: "0.9rem", color: "#c2410c", textAlign: "left",
+              }}>
+                ⚡ ระบบได้ส่ง <strong>Alert + AI Insight (🧩 Analytical AI)</strong> ไปยังหน้าผู้บริหารโดยอัตโนมัติแล้ว
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
+              <button className="btn" onClick={resetAll} style={{ background: "var(--blue)" }}>
+                + บันทึกฟอร์มใหม่
+              </button>
+            </div>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // WIZARD LAYOUT WRAPPER
+  // ══════════════════════════════════════════════════════════════════════════
   return (
     <Layout>
-      {/* Breadcrumb wizard navigation */}
-      <div className="wizard-breadcrumb">
-        <span className={step >= 1 ? "active" : ""} onClick={() => setStep(1)}>1. เลือกฝ่าย</span>
-        <span className="arrow">➔</span>
-        <span className={step >= 2 ? "active" : ""} onClick={() => { if (selectedDept) setStep(2); }}>2. WP งานหลัก</span>
-        <span className="arrow">➔</span>
-        <span className={step >= 3 ? "active" : ""} onClick={() => { if (selectedWP) setStep(3); }}>3. กิจกรรม</span>
-        <span className="arrow">➔</span>
-        <span className={step >= 4 ? "active" : ""}>4. บันทึกข้อมูล</span>
+      {/* Page Header */}
+      <div className="page-head" style={{ marginBottom: 8 }}>
+        <p className="eyebrow">เจ้าหน้าที่ปฏิบัติงาน · Operations Workspace</p>
+        <h1>บันทึกผลการตรวจพื้นที่</h1>
+        <p>เลือกฝ่าย → Work Process → Activity → กรอกแบบฟอร์ม เพื่อบันทึกข้อมูลเข้าสู่ระบบ</p>
       </div>
 
-      <div className="page-head" style={{ marginTop: 16 }}>
-        <p className="eyebrow">เจ้าหน้าที่ปฏิบัติงาน</p>
-        <h1>บันทึกงานประจำวัน</h1>
-        <p>กรอกรายงานการปฏิบัติงานย่อย โดยระบบจะสรุปและคำนวณสถานะแจ้งเตือนแบบเรียลไทม์</p>
-      </div>
+      {/* Breadcrumb */}
+      <WizardBreadcrumb
+        currentStep={step}
+        dept={selectedDept}
+        wp={selectedWP}
+        activity={selectedActivity}
+      />
 
-      {/* Step 1: Select Department */}
+      {/* ────────────────────────────────────────────────────────────────────
+          STEP 1: SELECT DEPARTMENT
+          ──────────────────────────────────────────────────────────────── */}
       {step === 1 && (
         <div>
-          <h3 className="section-title">กรุณาเลือกฝ่ายงานของคุณ</h3>
-          <div className="dept-grid">
-            {departments.map((dept) => (
-              <div 
-                key={dept.id} 
-                className={`dept-card border-${dept.colorTag}`}
-                onClick={() => handleSelectDept(dept)}
-              >
-                <span className="dept-icon">{dept.icon}</span>
-                <h2>{dept.name}</h2>
-                <p>คลิกเพื่อเลือกบันทึกงานในความรับผิดชอบของ{dept.name}</p>
-              </div>
-            ))}
-          </div>
+          <h2 style={{ fontSize: "1.2rem", color: "var(--ink-soft)", marginBottom: 16, fontWeight: 600 }}>
+            Step 1 — เลือกฝ่ายงานที่คุณรับผิดชอบ
+          </h2>
+          <SelectionGrid
+            items={DEPARTMENTS}
+            columns={3}
+            onSelect={(dept) => { setSelectedDept(dept); setSelectedWP(null); setSelectedActivity(null); setStep(2); }}
+          />
         </div>
       )}
 
-      {/* Step 2: Select Work Package */}
+      {/* ────────────────────────────────────────────────────────────────────
+          STEP 2: SELECT WORK PROCESS
+          ──────────────────────────────────────────────────────────────── */}
       {step === 2 && (
         <div>
-          <div className="step-back-banner">
-            <span>ฝ่ายที่เลือก: <strong>{selectedDept?.icon} {selectedDept?.name}</strong></span>
-            <button className="btn secondary small-btn" onClick={() => setStep(1)}>ย้อนกลับ</button>
+          <h2 style={{ fontSize: "1.2rem", color: "var(--ink-soft)", marginBottom: 16, fontWeight: 600 }}>
+            Step 2 — เลือก Work Process ภายใต้ {selectedDept?.icon} {selectedDept?.name}
+          </h2>
+          <SelectionGrid
+            items={availableWPs}
+            columns={2}
+            selected={selectedWP}
+            onSelect={(wp) => { setSelectedWP(wp); setSelectedActivity(null); setStep(3); }}
+          />
+          <div style={{ marginTop: 20 }}>
+            <button className="btn" onClick={goBack}
+              style={{ background: "transparent", border: "1px solid var(--line)", color: "var(--ink)" }}>
+              ← กลับ
+            </button>
           </div>
-          <h3 className="section-title">กรุณาเลือกงานหลัก (Work Package)</h3>
-          
-          {filteredWPs.length === 0 ? (
-            <p className="empty-note">ยังไม่มีการตั้งค่า Work Package สำหรับฝ่ายนี้</p>
-          ) : (
-            <div className="wp-list">
-              {filteredWPs.map((wp) => (
-                <div key={wp.id} className="wp-card" onClick={() => handleSelectWP(wp)}>
-                  <div className="wp-info">
-                    <h4>{wp.name}</h4>
-                    <p>{wp.description}</p>
-                  </div>
-                  <span className="freq-badge">{wp.frequency}</span>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       )}
 
-      {/* Step 3: Select Activity */}
+      {/* ────────────────────────────────────────────────────────────────────
+          STEP 3: SELECT ACTIVITY
+          ──────────────────────────────────────────────────────────────── */}
       {step === 3 && (
         <div>
-          <div className="step-back-banner">
-            <span>งานหลัก: <strong>{selectedWP?.name}</strong></span>
-            <button className="btn secondary small-btn" onClick={() => setStep(2)}>ย้อนกลับ</button>
+          <h2 style={{ fontSize: "1.2rem", color: "var(--ink-soft)", marginBottom: 16, fontWeight: 600 }}>
+            Step 3 — เลือก Activity ภายใต้ {selectedWP?.icon} {selectedWP?.name}
+          </h2>
+          <SelectionGrid
+            items={availableActivities}
+            columns={3}
+            selected={selectedActivity}
+            onSelect={(act) => { setSelectedActivity(act); setKpiValue(""); setChecklist({}); setStep(4); }}
+          />
+          <div style={{ marginTop: 20 }}>
+            <button className="btn" onClick={goBack}
+              style={{ background: "transparent", border: "1px solid var(--line)", color: "var(--ink)" }}>
+              ← กลับ
+            </button>
           </div>
-          <h3 className="section-title">กรุณาเลือกกิจกรรมย่อย (Activity)</h3>
+        </div>
+      )}
 
-          {filteredActs.length === 0 ? (
-            <p className="empty-note">ยังไม่มีการตั้งค่ากิจกรรมสำหรับ Work Package นี้</p>
-          ) : (
-            <div className="wp-list">
-              {filteredActs.map((act) => (
-                <div key={act.id} className="wp-card" onClick={() => handleSelectAct(act)}>
-                  <div className="wp-info">
-                    <h4>{act.name}</h4>
-                    <p>{act.description}</p>
+      {/* ────────────────────────────────────────────────────────────────────
+          STEP 4: INSPECTION FORM
+          ──────────────────────────────────────────────────────────────── */}
+      {step === 4 && selectedActivity && (
+        <form onSubmit={handleSubmit} style={{ maxWidth: 720, display: "flex", flexDirection: "column", gap: 20 }}>
+
+          {/* Journey Context Banner */}
+          <div style={{
+            background: "linear-gradient(135deg, #eef2ff 0%, #f0fdf4 100%)",
+            border: "1px solid #c7d2fe", borderRadius: 12, padding: "14px 20px",
+            display: "flex", gap: 20, flexWrap: "wrap", fontSize: "0.85rem", color: "var(--ink)",
+          }}>
+            <span>🏢 <strong>{selectedDept?.name}</strong></span>
+            <span style={{ color: "#cbd5e1" }}>›</span>
+            <span>{selectedWP?.icon} <strong>{selectedWP?.name}</strong></span>
+            <span style={{ color: "#cbd5e1" }}>›</span>
+            <span>📋 <strong>{selectedActivity?.name}</strong></span>
+            {selectedActivity.kpiId && (
+              <span style={{ marginLeft: "auto", color: "#4f46e5", fontWeight: 700, fontSize: "0.78rem", background: "#e0e7ff", padding: "2px 10px", borderRadius: 99 }}>
+                🧩 KPI-Linked Activity
+              </span>
+            )}
+          </div>
+
+          {/* Metadata */}
+          <div className="card">
+            <h3 style={{ marginTop: 0, color: "var(--dark)", fontSize: "1rem" }}>📋 ข้อมูลผู้บันทึก</h3>
+            <div className="grid grid-2" style={{ gap: 16 }}>
+              <div className="field">
+                <label>ชื่อเจ้าหน้าที่</label>
+                <select value={staffName} onChange={(e) => setStaffName(e.target.value)}>
+                  {STAFF_NAMES.map((n) => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </div>
+              <div className="field">
+                <label>โซนที่ตรวจ</label>
+                <select value={zone} onChange={(e) => setZone(e.target.value)}>
+                  {ZONES.map((z) => <option key={z} value={z}>{z}</option>)}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* KPI Input — only for KPI-linked activities */}
+          {selectedActivity.kpiId && (
+            <div className="card">
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+                <h3 style={{ margin: 0, color: "var(--dark)", fontSize: "1rem" }}>📊 ค่า KPI หลัก</h3>
+                <span style={{ fontSize: "0.75rem", background: "#e0e7ff", color: "#4f46e5", padding: "3px 10px", borderRadius: 99, fontWeight: 700 }}>
+                  🧩 Analytical AI จะประมวลผลค่านี้
+                </span>
+              </div>
+              <div className="field">
+                <label>
+                  {selectedActivity.kpiLabel} <span style={{ color: "var(--red)" }}>*</span>
+                </label>
+                <input
+                  type="number" min="0" max={selectedActivity.kpiMax} step="0.1"
+                  value={kpiValue}
+                  onChange={(e) => setKpiValue(e.target.value)}
+                  placeholder={selectedActivity.kpiPlaceholder}
+                  required
+                  style={{ fontSize: "1.2rem", padding: "12px 16px" }}
+                />
+              </div>
+
+              {/* Live KPI Preview */}
+              {kpiStatus && (
+                <div style={{
+                  marginTop: 12, padding: "12px 18px", borderRadius: 10,
+                  background: kpiStatus === "Critical" ? "#fef2f2" : kpiStatus === "Warning" ? "#fffbeb" : "#f0fdf4",
+                  border: `1px solid ${kpiStatus === "Critical" ? "#fca5a5" : kpiStatus === "Warning" ? "#fcd34d" : "#86efac"}`,
+                  display: "flex", alignItems: "center", gap: 10,
+                }}>
+                  <span style={{ fontSize: "1.3rem" }}>
+                    {kpiStatus === "Critical" ? "🔴" : kpiStatus === "Warning" ? "🟡" : "🟢"}
+                  </span>
+                  <div>
+                    <strong style={{ color: kpiStatus === "Critical" ? "#dc2626" : kpiStatus === "Warning" ? "#b45309" : "#16a34a", display: "block" }}>
+                      KPI Preview: {kpiStatus}
+                    </strong>
+                    <span style={{ fontSize: "0.78rem", color: "var(--ink-soft)" }}>
+                      {kpiStatus === "Normal"
+                        ? `✓ ต่ำกว่าเกณฑ์เตือน (Warning ที่ ${selectedActivity.kpiWarning}${selectedActivity.kpiUnit})`
+                        : kpiStatus === "Warning"
+                        ? `⚠ เกินเกณฑ์เตือน — Critical ที่ ${selectedActivity.kpiCritical}${selectedActivity.kpiUnit}`
+                        : `🚨 เกินเกณฑ์วิกฤต — 🧩 Analytical AI จะวิเคราะห์และส่ง Alert อัตโนมัติ`
+                      }
+                    </span>
                   </div>
-                  <span className="arrow-next">➔</span>
+                  {kpiStatus !== "Normal" && (
+                    <span style={{ fontSize: "0.78rem", color: "#6b7280", marginLeft: "auto", textAlign: "right" }}>
+                      ⚡ ระบบแจ้งเตือน<br/>ผู้บริหารอัตโนมัติ
+                    </span>
+                  )}
                 </div>
+              )}
+            </div>
+          )}
+
+          {/* Checklist + Completion Rate */}
+          <div className="card">
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+              <h3 style={{ margin: 0, color: "var(--dark)", fontSize: "1rem" }}>✅ รายการตรวจสอบ (Checklist)</h3>
+              {/* Completion Rate Badge */}
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: "0.82rem", color: "var(--ink-soft)" }}>
+                  {completedCount}/{checklistItems.length} รายการ
+                </span>
+                <div style={{
+                  background: completionRate === 100 ? "#dcfce7" : completionRate >= 70 ? "#fef9c3" : "#fee2e2",
+                  color:      completionRate === 100 ? "#16a34a" : completionRate >= 70 ? "#854d0e" : "#dc2626",
+                  fontWeight: 800, fontSize: "0.9rem", padding: "4px 14px", borderRadius: 99,
+                }}>
+                  {completionRate}% Complete
+                </div>
+              </div>
+            </div>
+
+            {/* Progress bar */}
+            <div style={{ height: 6, background: "#f1f5f9", borderRadius: 99, marginBottom: 16, overflow: "hidden" }}>
+              <div style={{
+                height: "100%", borderRadius: 99, transition: "width 0.3s ease",
+                width: `${completionRate}%`,
+                background: completionRate === 100 ? "#22c55e" : completionRate >= 70 ? "#f59e0b" : "#ef4444",
+              }} />
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {checklistItems.map((item) => (
+                <label
+                  key={item}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 12, cursor: "pointer",
+                    padding: "10px 14px", background: checklist[item] ? "#f0fdf4" : "#f8fafc",
+                    borderRadius: 10, border: `1px solid ${checklist[item] ? "#86efac" : "var(--line)"}`,
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={!!checklist[item]}
+                    onChange={() => toggleChecklist(item)}
+                    style={{ width: 18, height: 18, accentColor: "#22c55e" }}
+                  />
+                  <span style={{ color: "var(--ink)", fontSize: "0.95rem", flex: 1 }}>{item}</span>
+                  {checklist[item] && <span style={{ color: "#16a34a", fontWeight: 700, fontSize: "0.85rem" }}>✓ ผ่าน</span>}
+                </label>
               ))}
             </div>
-          )}
-        </div>
-      )}
-
-      {/* Step 4: Render Dynamic Form */}
-      {step === 4 && selectedAct && template && (
-        <div>
-          <div className="step-back-banner">
-            <span>กิจกรรม: <strong>{selectedAct.name}</strong></span>
-            <button className="btn secondary small-btn" onClick={() => setStep(3)}>ย้อนกลับไปยังกิจกรรม</button>
           </div>
 
-          <div className="card" style={{ marginTop: 16 }}>
-            <h2 style={{ margin: "0 0 8px 0", fontFamily: "var(--font-display)" }}>
-              {selectedAct.name}
-            </h2>
-            <p style={{ color: "var(--ink-soft)", margin: "0 0 24px 0", fontSize: "0.92rem" }}>
-              {selectedAct.description}
-            </p>
-
-            <form onSubmit={handleSubmit}>
-              <h3 className="form-sub-title">1. ข้อมูลปฏิบัติงานเบื้องต้น</h3>
-              <div className="grid grid-3">
-                <div className="field">
-                  <label>วันที่ปฏิบัติงาน</label>
-                  <input
-                    type="date"
-                    value={metadata.date}
-                    onChange={(e) => setMetadata(prev => ({ ...prev, date: e.target.value }))}
-                    required
-                  />
-                </div>
-                <div className="field">
-                  <label>ชื่อผู้บันทึก</label>
-                  <select
-                    value={metadata.staffName}
-                    onChange={(e) => setMetadata(prev => ({ ...prev, staffName: e.target.value }))}
-                    required
-                  >
-                    {STAFF_NAMES.map((name) => (
-                      <option key={name}>{name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="field">
-                  <label>พื้นที่ / โซน</label>
-                  <select
-                    value={metadata.zone}
-                    onChange={(e) => setMetadata(prev => ({ ...prev, zone: e.target.value }))}
-                    required
-                  >
-                    {ZONES.map((zone) => (
-                      <option key={zone}>{zone}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <h3 className="form-sub-title" style={{ marginTop: 24 }}>2. รายละเอียดการประเมิน</h3>
-
-              {template.questions.length === 0 ? (
-                <div className="empty-questions-alert">
-                  <p>⚠️ ยังไม่ได้กำหนดชุดคำถามในฟอร์มของกิจกรรมนี้</p>
-                  <p style={{ fontSize: "0.85rem", marginTop: 4 }}>กรุณาแจ้งผู้ดูแลระบบให้เข้าไปตั้งค่า Form Template ในหน้าผู้ดูแลระบบ (Admin)</p>
-                </div>
-              ) : (
-                template.questions.map((q) => (
-                  <div key={q.id} className="field form-field-box">
-                    <label style={{ fontWeight: 600, fontSize: "0.95rem", color: "var(--ink)" }}>
-                      {q.label} {q.required && <span style={{ color: "var(--red)" }}>*</span>}
-                    </label>
-
-                    {/* Question type: YES/NO */}
-                    {q.type === "yes_no" && (
-                      <div className="yes-no-group">
-                        <button
-                          type="button"
-                          className={`yes-no-btn yes ${answers[q.id] === "yes" ? "selected" : ""}`}
-                          onClick={() => handleAnswerChange(q.id, "yes")}
-                        >
-                          ใช่ / ปกติ
-                        </button>
-                        <button
-                          type="button"
-                          className={`yes-no-btn no ${answers[q.id] === "no" ? "selected" : ""}`}
-                          onClick={() => handleAnswerChange(q.id, "no")}
-                        >
-                          ไม่ใช่ / พบปัญหา
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Question type: CHECKBOX_GROUP */}
-                    {q.type === "checkbox_group" && (
-                      <div className="checkbox-options-grid">
-                        {(q.options || []).map((opt) => (
-                          <label key={opt} className="checkbox-option">
-                            <input
-                              type="checkbox"
-                              checked={(answers[q.id] || []).includes(opt)}
-                              onChange={(e) => handleCheckboxChange(q.id, opt, e.target.checked)}
-                            />
-                            <span>{opt}</span>
-                          </label>
-                        ))}
-                        {q.flagIf && (
-                          <div className="flag-hint-text">
-                            * ติ๊กเฉพาะรายการที่ผ่านเกณฑ์ ส่วนที่ไม่ติ๊กจะถูกระบบแจ้งสถานะเป็น <strong>{q.flagIf.setStatus}</strong>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Question type: SINGLE_CHOICE */}
-                    {q.type === "single_choice" && (
-                      <select
-                        value={answers[q.id] || ""}
-                        onChange={(e) => handleAnswerChange(q.id, e.target.value)}
-                        required={q.required}
-                      >
-                        <option value="">-- กรุณาเลือก --</option>
-                        {(q.options || []).map((opt) => (
-                          <option key={opt} value={opt}>{opt}</option>
-                        ))}
-                      </select>
-                    )}
-
-                    {/* Question type: TEXT */}
-                    {q.type === "text" && (
-                      <textarea
-                        value={answers[q.id] || ""}
-                        onChange={(e) => handleAnswerChange(q.id, e.target.value)}
-                        placeholder="กรอกรายละเอียด..."
-                        required={q.required}
-                      />
-                    )}
-
-                    {/* Question type: NUMBER */}
-                    {q.type === "number" && (
-                      <input
-                        type="number"
-                        value={answers[q.id] || ""}
-                        onChange={(e) => handleAnswerChange(q.id, e.target.value)}
-                        placeholder="กรอกตัวเลข..."
-                        required={q.required}
-                      />
-                    )}
-
-                    {/* Question type: PHOTO (Mock image selection to preserve localStorage capacity) */}
-                    {q.type === "photo" && (
-                      <PhotoInput 
-                        value={answers[q.id] || ""}
-                        onChange={(val) => handleAnswerChange(q.id, val)}
-                      />
-                    )}
-
-                    {/* Question type: SIGNATURE (Canvas signature pad) */}
-                    {q.type === "signature" && (
-                      <SignatureInput
-                        value={answers[q.id] || ""}
-                        onChange={(val) => handleAnswerChange(q.id, val)}
-                      />
-                    )}
-                  </div>
-                ))
-              )}
-
-              {error && (
-                <div className="error-banner">
-                  {error}
-                </div>
-              )}
-
-              <div className="form-submit-footer">
-                <button 
-                  className="btn" 
-                  type="submit" 
-                  disabled={template.questions.length === 0}
-                >
-                  บันทึกข้อมูลรายงาน
-                </button>
-
-                {savedReport && (
-                  <div className="save-success-banner">
-                    <span style={{ fontSize: "0.9rem", color: "var(--ink-soft)" }}>บันทึกสำเร็จ สถานะประเมิน:</span>
-                    <StatusStamp status={savedReport.derivedStatus} />
-                  </div>
-                )}
-              </div>
-            </form>
+          {/* Notes */}
+          <div className="card">
+            <h3 style={{ marginTop: 0, color: "var(--dark)", fontSize: "1rem" }}>📝 หมายเหตุเพิ่มเติม</h3>
+            <textarea
+              value={note} onChange={(e) => setNote(e.target.value)}
+              placeholder="บันทึกสิ่งที่พบเพิ่มเติม หรือข้อสังเกตในพื้นที่..."
+              rows={3} style={{ width: "100%", resize: "vertical" }}
+            />
           </div>
-        </div>
-      )}
 
-      {/* Styled wizard elements inside the document */}
-      <style jsx global>{`
-        .wizard-breadcrumb {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          background: var(--paper-raised);
-          padding: 12px 20px;
-          border-radius: var(--radius);
-          border: 1px solid var(--line);
-          font-size: 0.88rem;
-          flex-wrap: wrap;
-        }
-        .wizard-breadcrumb span {
-          color: var(--ink-soft);
-          cursor: pointer;
-        }
-        .wizard-breadcrumb span.active {
-          color: var(--ink);
-          font-weight: 700;
-        }
-        .wizard-breadcrumb .arrow {
-          color: var(--line);
-          cursor: default;
-        }
-        
-        .section-title {
-          font-family: var(--font-display);
-          margin: 24px 0 16px 0;
-          font-weight: 600;
-        }
-
-        .step-back-banner {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          background: var(--paper-raised);
-          border: 1px solid var(--line);
-          padding: 10px 16px;
-          border-radius: var(--radius);
-          font-size: 0.9rem;
-          margin-top: 10px;
-        }
-        .small-btn {
-          padding: 6px 12px;
-          font-size: 0.8rem;
-        }
-
-        /* Dept grid cards */
-        .dept-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-          gap: 20px;
-          margin-top: 10px;
-        }
-        .dept-card {
-          background: var(--paper-raised);
-          border: 1px solid var(--line);
-          border-radius: var(--radius);
-          padding: 24px;
-          cursor: pointer;
-          transition: transform 0.15s ease, box-shadow 0.15s ease;
-          box-shadow: var(--shadow-card);
-        }
-        .dept-card:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 6px 20px rgba(35, 38, 31, 0.1);
-        }
-        .dept-icon {
-          font-size: 2.2rem;
-          display: block;
-          margin-bottom: 12px;
-        }
-        .dept-card h2 {
-          font-family: var(--font-display);
-          font-size: 1.3rem;
-          margin: 0 0 8px 0;
-        }
-        .dept-card p {
-          color: var(--ink-soft);
-          font-size: 0.88rem;
-          margin: 0;
-          line-height: 1.5;
-        }
-        .border-green { border-top: 5px solid var(--green); }
-        .border-navy { border-top: 5px solid #283747; }
-        .border-gold { border-top: 5px solid var(--gold); }
-
-        /* WP activity list */
-        .wp-list {
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-        }
-        .wp-card {
-          background: var(--paper-raised);
-          border: 1px solid var(--line);
-          border-radius: var(--radius);
-          padding: 16px 20px;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          cursor: pointer;
-          box-shadow: var(--shadow-card);
-          transition: background 0.15s ease;
-        }
-        .wp-card:hover {
-          background: rgba(35, 38, 31, 0.03);
-        }
-        .wp-info h4 {
-          margin: 0 0 4px 0;
-          font-size: 1rem;
-        }
-        .wp-info p {
-          margin: 0;
-          color: var(--ink-soft);
-          font-size: 0.85rem;
-        }
-        .freq-badge {
-          background: var(--gold-soft);
-          color: #6b4c14;
-          font-size: 0.72rem;
-          font-weight: 600;
-          padding: 4px 10px;
-          border-radius: 99px;
-          text-transform: uppercase;
-        }
-        .arrow-next {
-          color: var(--ink-soft);
-          font-weight: bold;
-        }
-
-        /* Form dynamic styling */
-        .form-sub-title {
-          font-family: var(--font-display);
-          border-bottom: 1px solid var(--line);
-          padding-bottom: 8px;
-          margin-bottom: 16px;
-          font-weight: 600;
-        }
-        .form-field-box {
-          background: rgba(255, 255, 255, 0.4);
-          padding: 16px;
-          border: 1px solid var(--line);
-          border-radius: var(--radius);
-          margin-bottom: 20px;
-        }
-        
-        .empty-questions-alert {
-          background: var(--gold-soft);
-          border: 1px solid var(--gold);
-          color: #6b4c14;
-          padding: 20px;
-          border-radius: var(--radius);
-          text-align: center;
-          margin-bottom: 20px;
-        }
-
-        /* Yes No button group */
-        .yes-no-group {
-          display: flex;
-          gap: 12px;
-          margin-top: 8px;
-        }
-        .yes-no-btn {
-          flex: 1;
-          padding: 12px;
-          border: 1px solid var(--line);
-          border-radius: var(--radius);
-          background: #fff;
-          color: var(--ink-soft);
-          font-weight: 600;
-          cursor: pointer;
-          transition: all 0.15s ease;
-        }
-        .yes-no-btn:hover {
-          background: var(--paper);
-        }
-        .yes-no-btn.yes.selected {
-          background: var(--green-soft);
-          border-color: var(--green);
-          color: var(--green);
-        }
-        .yes-no-btn.no.selected {
-          background: var(--red-soft);
-          border-color: var(--red);
-          color: var(--red);
-        }
-
-        /* Checkbox grid */
-        .checkbox-options-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-          gap: 10px;
-          margin-top: 8px;
-        }
-        .checkbox-option {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          cursor: pointer;
-          font-size: 0.92rem;
-          padding: 6px;
-        }
-        .checkbox-option input {
-          width: auto;
-          cursor: pointer;
-        }
-        .flag-hint-text {
-          grid-column: 1 / -1;
-          font-size: 0.78rem;
-          color: var(--ink-soft);
-          margin-top: 4px;
-        }
-
-        /* Error banner */
-        .error-banner {
-          background: var(--red-soft);
-          color: var(--red);
-          border: 1px solid var(--red);
-          padding: 12px 16px;
-          border-radius: var(--radius);
-          font-size: 0.9rem;
-          font-weight: 600;
-          margin-bottom: 16px;
-        }
-
-        .form-submit-footer {
-          display: flex;
-          align-items: center;
-          gap: 20px;
-          margin-top: 24px;
-        }
-
-        .save-success-banner {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-        }
-      `}</style>
-    </Layout>
-  );
-}
-
-// Sub-component: Signature Canvas Pad
-function SignatureInput({ value, onChange }) {
-  const canvasRef = useRef(null);
-  const isDrawing = useRef(false);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    ctx.strokeStyle = "#23261f";
-    ctx.lineWidth = 2.5;
-    ctx.lineCap = "round";
-
-    // Set high-dpi support
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width;
-    canvas.height = rect.height;
-
-    // Load initial signature if exists
-    if (value) {
-      const img = new Image();
-      img.onload = () => {
-        ctx.drawImage(img, 0, 0);
-      };
-      img.src = value;
-    }
-  }, [value]);
-
-  const getCoordinates = (e) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return { x: 0, y: 0 };
-    const rect = canvas.getBoundingClientRect();
-    
-    // Check Touch Event vs Mouse Event
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    
-    return {
-      x: clientX - rect.left,
-      y: clientY - rect.top
-    };
-  };
-
-  const startDrawing = (e) => {
-    e.preventDefault();
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    const { x, y } = getCoordinates(e);
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    isDrawing.current = true;
-  };
-
-  const draw = (e) => {
-    if (!isDrawing.current) return;
-    e.preventDefault();
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    const { x, y } = getCoordinates(e);
-    ctx.lineTo(x, y);
-    ctx.stroke();
-  };
-
-  const stopDrawing = () => {
-    if (!isDrawing.current) return;
-    isDrawing.current = false;
-    const canvas = canvasRef.current;
-    if (canvas) {
-      onChange(canvas.toDataURL());
-    }
-  };
-
-  const handleClear = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    onChange("");
-  };
-
-  return (
-    <div className="sig-container">
-      <div className="sig-canvas-wrapper">
-        <canvas
-          ref={canvasRef}
-          className="sig-canvas"
-          onMouseDown={startDrawing}
-          onMouseMove={draw}
-          onMouseUp={stopDrawing}
-          onMouseLeave={stopDrawing}
-          onTouchStart={startDrawing}
-          onTouchMove={draw}
-          onTouchEnd={stopDrawing}
-        />
-      </div>
-      <div className="sig-toolbar">
-        <span className="sig-hint">กรุณาใช้นิ้วหรือเมาส์ลากเซ็นชื่อในช่องสี่เหลี่ยม</span>
-        <button type="button" className="btn secondary small-btn" onClick={handleClear}>
-          ล้างลายเซ็น
-        </button>
-      </div>
-
-      <style jsx>{`
-        .sig-container {
-          margin-top: 8px;
-        }
-        .sig-canvas-wrapper {
-          border: 2px dashed var(--line);
-          background: #fff;
-          border-radius: var(--radius);
-          overflow: hidden;
-        }
-        .sig-canvas {
-          width: 100%;
-          height: 140px;
-          cursor: crosshair;
-          display: block;
-        }
-        .sig-toolbar {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-top: 8px;
-        }
-        .sig-hint {
-          font-size: 0.78rem;
-          color: var(--ink-soft);
-        }
-      `}</style>
-    </div>
-  );
-}
-
-// Sub-component: Photo Upload Mock Input
-function PhotoInput({ value, onChange }) {
-  // Available mockup images
-  const MOCK_PHOTOS = [
-    { name: "ภาพถ่ายปกติ 1", url: "/mock_photo_1.jpg", thumb: "🟢 ภาพถ่ายสภาพเรียบร้อย" },
-    { name: "ภาพถ่ายไม่สวมหมวกนิรภัย", url: "/mock_photo_no_helmet.jpg", thumb: "⚠️ มีพนักงานไม่สวมหมวกนิรภัย" },
-    { name: "ภาพถ่ายพบเศษขยะสะสม", url: "/mock_photo_trash.jpg", thumb: "⚠️ พบขยะตกค้างโซน A" },
-    { name: "ภาพถ่ายห้องน้ำสกปรก", url: "/mock_photo_dirty_toilet.jpg", thumb: "⚠️ พื้นห้องน้ำเปียกสกปรก" }
-  ];
-
-  const handleFileChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        // Compress base64 to avoid local storage quota limits
-        onChange(event.target.result);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  return (
-    <div className="photo-input-container">
-      <div className="upload-btn-wrapper">
-        <input 
-          type="file" 
-          accept="image/*" 
-          onChange={handleFileChange} 
-          style={{ marginBottom: 10 }}
-        />
-        <div style={{ fontSize: "0.8rem", color: "var(--ink-soft)", margin: "4px 0 10px 0" }}>
-          หรือเลือกภาพตัวอย่างเดโมเพื่อจำลองการตรวจสอบ:
-        </div>
-        <div className="mock-grid">
-          {MOCK_PHOTOS.map(p => (
-            <button
-              key={p.url}
-              type="button"
-              className={`mock-photo-btn ${value === p.url ? "active" : ""}`}
-              onClick={() => onChange(p.url)}
-            >
-              {p.thumb}
+          {/* Actions */}
+          <div style={{ display: "flex", gap: 12 }}>
+            <button type="button" className="btn" onClick={goBack}
+              style={{ background: "transparent", border: "1px solid var(--line)", color: "var(--ink)" }}>
+              ← กลับ
             </button>
-          ))}
-        </div>
-      </div>
-
-      {value && (
-        <div className="photo-preview-box">
-          <p className="preview-label">ตัวอย่างภาพถ่าย:</p>
-          {value.startsWith("data:") ? (
-            <img src={value} alt="Preview" className="img-preview" />
-          ) : (
-            <div className="mock-image-container">
-              <span className="photo-icon">📷</span>
-              <strong>{MOCK_PHOTOS.find(p => p.url === value)?.name || value}</strong>
-              <p style={{ margin: "4px 0 0 0", fontSize: "0.8rem" }}>[จำลองการเชื่อมต่อโมเดล Vision ใน Phase 2]</p>
-            </div>
-          )}
-        </div>
+            <button
+              type="submit"
+              className="btn"
+              style={{ background: "var(--blue)", flex: 1, justifyContent: "center", opacity: submitting ? 0.7 : 1 }}
+              disabled={submitting || (selectedActivity.kpiId && kpiValue === "")}
+            >
+              {submitting ? "กำลังส่งข้อมูล..." : "📤 ส่งรายงาน"}
+            </button>
+          </div>
+        </form>
       )}
-
-      <style jsx>{`
-        .photo-input-container {
-          margin-top: 8px;
-        }
-        .mock-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-          gap: 8px;
-          margin-bottom: 12px;
-        }
-        .mock-photo-btn {
-          padding: 8px;
-          font-size: 0.8rem;
-          border: 1px solid var(--line);
-          background: #fff;
-          border-radius: var(--radius);
-          cursor: pointer;
-          text-align: left;
-          transition: all 0.15s ease;
-        }
-        .mock-photo-btn:hover {
-          background: var(--paper);
-        }
-        .mock-photo-btn.active {
-          border-color: var(--gold);
-          background: var(--gold-soft);
-          font-weight: 600;
-        }
-        .photo-preview-box {
-          margin-top: 12px;
-          border: 1px solid var(--line);
-          padding: 12px;
-          background: var(--paper);
-          border-radius: var(--radius);
-        }
-        .preview-label {
-          margin: 0 0 6px 0;
-          font-size: 0.8rem;
-          font-weight: 600;
-        }
-        .img-preview {
-          max-width: 100%;
-          max-height: 200px;
-          display: block;
-          border-radius: 3px;
-        }
-        .mock-image-container {
-          border: 1px dashed var(--ink-soft);
-          padding: 20px;
-          border-radius: 4px;
-          text-align: center;
-          color: var(--ink-soft);
-        }
-        .photo-icon {
-          font-size: 1.8rem;
-          display: block;
-          margin-bottom: 4px;
-        }
-      `}</style>
-    </div>
+    </Layout>
   );
 }

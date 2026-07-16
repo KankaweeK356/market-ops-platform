@@ -44,10 +44,8 @@ export default function Home() {
 
       <div className="card" style={{ marginTop: 32 }}>
         <p style={{ margin: 0, fontSize: "0.88rem", color: "var(--ink-soft)" }}>
-          <strong>หมายเหตุเดโม:</strong> เวอร์ชันนี้เก็บข้อมูลไว้ใน localStorage ของเบราว์เซอร์
-          เพื่อให้ทดลองใช้งานและ deploy ขึ้น Vercel ได้ทันที เมื่อพร้อมใช้งานจริงหลายหน่วยงาน
-          พร้อมกัน แนะนำให้เชื่อมต่อฐานข้อมูลกลาง (เช่น Vercel Postgres หรือ Supabase)
-          ตามที่ระบุไว้ใน README
+          <strong>ระบบ Prototype:</strong> ข้อมูลถูกจัดเก็บใน Server-side Database (In-memory) และ
+          ประมวลผลผ่าน Event-Driven API ทุก Flow ตั้งแต่ Form Submission → KPI → AI Alert → Executive Decision → Task Completion
         </p>
       </div>
     </Layout>
